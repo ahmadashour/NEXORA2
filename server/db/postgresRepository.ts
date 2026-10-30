@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { query, withTransaction, getPostgresPool } from './postgres';
 import { User, UserProfile, Role, Permission, ActivityLog, SanitizedUser } from './types';
 
@@ -234,11 +235,12 @@ export class PostgresRepository {
    */
   public async revokeToken(jti: string, userId?: string, expiresAt?: Date): Promise<void> {
     const defaultExpiry = expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const safeJti = jti.length > 255 ? crypto.createHash('sha256').update(jti).digest('hex') : jti;
     await query(
       `INSERT INTO revoked_tokens (jti, user_id, expires_at, revoked_at)
        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
        ON CONFLICT (jti) DO NOTHING`,
-      [jti, userId || null, defaultExpiry.toISOString()]
+      [safeJti, userId || null, defaultExpiry.toISOString()]
     );
   }
 
@@ -246,9 +248,10 @@ export class PostgresRepository {
    * Checks if token JTI is in revoked_tokens table and not expired
    */
   public async isTokenRevoked(jti: string): Promise<boolean> {
+    const safeJti = jti.length > 255 ? crypto.createHash('sha256').update(jti).digest('hex') : jti;
     const res = await query(
       'SELECT 1 FROM revoked_tokens WHERE jti = $1 AND expires_at > CURRENT_TIMESTAMP LIMIT 1',
-      [jti]
+      [safeJti]
     );
     return (res.rowCount ?? 0) > 0;
   }

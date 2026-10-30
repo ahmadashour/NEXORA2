@@ -11,13 +11,14 @@ export interface PostgresConfig {
   isSupavisorTransactionMode?: boolean;
 }
 
-export function isValidPostgresUrl(url?: string): boolean {
+export function isValidPostgresUrl(url?: string): url is string {
   if (!url || typeof url !== 'string') return false;
   const trimmed = url.trim();
   return trimmed.startsWith('postgres://') || trimmed.startsWith('postgresql://');
 }
 
 let pool: pg.Pool | null = null;
+let currentConnectionString: string | null = null;
 
 /**
  * Configure and initialize PostgreSQL Connection Pool
@@ -30,8 +31,13 @@ export function getPostgresPool(): pg.Pool | null {
     return null;
   }
 
-  if (pool) {
+  if (pool && currentConnectionString === connectionString) {
     return pool;
+  }
+
+  if (pool && currentConnectionString !== connectionString) {
+    pool.end().catch(() => {});
+    pool = null;
   }
 
   // Detect Supavisor Transaction Pooler (port 6543 or pooler hostname)
@@ -41,7 +47,8 @@ export function getPostgresPool(): pg.Pool | null {
   let sslConfig: pg.ConnectionConfig['ssl'] = false;
   const isProduction = process.env.NODE_ENV === 'production';
   const isSupabase = connectionString.includes('supabase.com');
-  const requireSsl = isProduction || isSupabase || process.env.DB_SSL === 'true';
+  const isLocal = connectionString.includes('127.0.0.1') || connectionString.includes('localhost');
+  const requireSsl = !isLocal && (process.env.DB_SSL === 'true' || isProduction || isSupabase);
 
   if (requireSsl) {
     let caContent: string | undefined = process.env.DB_SSL_CA;

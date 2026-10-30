@@ -20,12 +20,17 @@ export async function runMigrations(databaseUrl?: string): Promise<{ success: bo
     };
   }
 
+  const isLocal = connString.includes('127.0.0.1') || connString.includes('localhost');
+  const useSsl = !isLocal && (process.env.DB_SSL === 'true' || process.env.NODE_ENV === 'production' || connString.includes('supabase.com'));
+
   const { Pool } = pg;
   const pool = new Pool({
     connectionString: connString,
-    ssl: {
-      rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true',
-    },
+    ssl: useSsl
+      ? {
+          rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true',
+        }
+      : false,
     connectionTimeoutMillis: 10000,
   });
 

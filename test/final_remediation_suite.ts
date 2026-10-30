@@ -433,6 +433,7 @@ async function executeSprintVerification() {
   console.log(`TOTAL SUITES: ${totalCount} | PASSED: ${passedCount} | FAILED: ${totalCount - passedCount}`);
   if (passedCount === totalCount) {
     console.log('STATUS: ALL 6 VERIFICATION REQUIREMENTS FULLY COMPLIANT AND PASSED.');
+    process.exit(0);
   } else {
     console.error('STATUS: FAILURES DETECTED.');
     process.exit(1);
