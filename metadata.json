@@ -1,0 +1,6 @@
+{
+  "name": "NEXORA | نيكسورا",
+  "description": "منصة التعليم الذكي والمجتمع المعرفي — منصة تعليمية متكاملة تخدم القيادات والمعلمين والطلاب وأولياء الأمور",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
