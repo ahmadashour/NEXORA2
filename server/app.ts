@@ -101,6 +101,19 @@ export function createExpressApp(): Express {
       return;
     }
 
+    // Handle persistent database unavailability in production with explicit 503 Service Unavailable
+    if (
+      message.includes('DATABASE_UNAVAILABLE') ||
+      (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 503)
+    ) {
+      res.status(503).json({
+        success: false,
+        error: 'DATABASE_UNAVAILABLE',
+        message: 'قاعدة بيانات PostgreSQL الدائمة غير متوفرة أو غير متصلة في بيئة الإنتاج',
+      });
+      return;
+    }
+
     console.error('[SERVER ERROR]', message);
 
     res.status(500).json({

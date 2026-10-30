@@ -33,7 +33,11 @@ export function getPostgresPool(): pg.Pool | null {
 
   // SSL / TLS Configuration
   let sslConfig: pg.ConnectionConfig['ssl'] = false;
-  if (process.env.NODE_ENV === 'production' || connectionString.includes('supabase.com') || process.env.DB_SSL === 'true') {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isSupabase = connectionString.includes('supabase.com');
+  const requireSsl = isProduction || isSupabase || process.env.DB_SSL === 'true';
+
+  if (requireSsl) {
     let caContent: string | undefined = process.env.DB_SSL_CA;
     if (!caContent && process.env.DB_SSL_CA_PATH && fs.existsSync(process.env.DB_SSL_CA_PATH)) {
       try {
@@ -49,7 +53,12 @@ export function getPostgresPool(): pg.Pool | null {
         rejectUnauthorized: true,
       };
     } else {
-      const rejectUnauthorized = process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true';
+      // In production: strict certificate verification (rejectUnauthorized: true) is mandatory by default.
+      // In development: can be configured via DB_SSL_REJECT_UNAUTHORIZED if using local self-signed certs.
+      const rejectUnauthorized = isProduction
+        ? (process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false')
+        : (process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true');
+
       sslConfig = { rejectUnauthorized };
     }
   }

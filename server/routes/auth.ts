@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { db } from '../db';
+import { db, DatabaseUnavailableError } from '../db';
 import { authMiddleware, AuthRequest, generateToken } from '../middleware/auth';
 import { validateLogin, validateRegister } from '../middleware/validator';
 import { createRateLimiter } from '../middleware/rateLimiter';
@@ -77,6 +77,14 @@ router.post('/register', validateRegister, async (req: AuthRequest, res: Respons
       permissions: permissions.map(p => p.code),
     });
   } catch (err: unknown) {
+    if (err instanceof DatabaseUnavailableError || (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 503)) {
+      res.status(503).json({
+        success: false,
+        error: 'DATABASE_UNAVAILABLE',
+        message: 'قاعدة بيانات PostgreSQL الدائمة غير متوفرة أو غير متصلة في بيئة الإنتاج',
+      });
+      return;
+    }
     const message = err instanceof Error ? err.message : 'Unknown registration error';
     res.status(500).json({
       success: false,
@@ -169,6 +177,14 @@ router.post('/login', validateLogin, async (req: AuthRequest, res: Response) => 
       permissions: permissions.map(p => p.code),
     });
   } catch (err: unknown) {
+    if (err instanceof DatabaseUnavailableError || (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 503)) {
+      res.status(503).json({
+        success: false,
+        error: 'DATABASE_UNAVAILABLE',
+        message: 'قاعدة بيانات PostgreSQL الدائمة غير متوفرة أو غير متصلة في بيئة الإنتاج',
+      });
+      return;
+    }
     const message = err instanceof Error ? err.message : 'Unknown login error';
     res.status(500).json({
       success: false,
@@ -308,6 +324,14 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
       message: 'تم تحديث كلمة المرور بنجاح في منظومة NEXORA',
     });
   } catch (err: unknown) {
+    if (err instanceof DatabaseUnavailableError || (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 503)) {
+      res.status(503).json({
+        success: false,
+        error: 'DATABASE_UNAVAILABLE',
+        message: 'قاعدة بيانات PostgreSQL الدائمة غير متوفرة أو غير متصلة في بيئة الإنتاج',
+      });
+      return;
+    }
     const message = err instanceof Error ? err.message : 'Unknown error';
     res.status(500).json({
       success: false,

@@ -69,7 +69,7 @@ export function generateToken(user: SanitizedUser): string {
  * Authentication Middleware with Dual Bearer Header + HttpOnly Cookie support
  * Includes CSRF validation when sessions authenticate via Cookies.
  */
-export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
+export async function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   let token: string | null = null;
   let authMethod: 'bearer' | 'cookie' = 'bearer';
 
@@ -115,8 +115,8 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
     return;
   }
 
-  // Check if token or JTI is revoked
-  if (db.isTokenRevoked(token)) {
+  // Check if token or JTI is revoked (checks both memory and PostgreSQL revoked_tokens table)
+  if (await db.isTokenRevokedAsync(token)) {
     res.status(401).json({
       success: false,
       error: 'TOKEN_REVOKED',
@@ -137,8 +137,8 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
       exp?: number;
     };
 
-    // If JTI was used, also check JTI revocation
-    if (decoded.jti && db.isTokenRevoked(decoded.jti)) {
+    // If JTI was used, also check JTI revocation in storage
+    if (decoded.jti && (await db.isTokenRevokedAsync(decoded.jti))) {
       res.status(401).json({
         success: false,
         error: 'TOKEN_REVOKED',

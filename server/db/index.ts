@@ -1,4 +1,13 @@
 import { Role, Permission, User, UserProfile, ActivityLog, SanitizedUser } from './types';
+import { postgresRepo } from './postgresRepository';
+
+export class DatabaseUnavailableError extends Error {
+  public statusCode = 503;
+  constructor(message = 'DATABASE_UNAVAILABLE: Persistent database connection (PostgreSQL) is required in production environment.') {
+    super(message);
+    this.name = 'DatabaseUnavailableError';
+  }
+}
 
 // Default roles definition according to Phase 3.1 blueprint
 const DEFAULT_ROLES: Role[] = [
@@ -148,12 +157,23 @@ class DatabaseStore {
     return this.users.get(id) || null;
   }
 
+  private assertPersistenceAllowed(operation: string): void {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+    if (isProduction && !hasDatabaseUrl && !process.env.ALLOW_INSECURE_DEV_MEMORY) {
+      throw new DatabaseUnavailableError(
+        `DATABASE_UNAVAILABLE: Cannot perform persistent operation '${operation}'. PostgreSQL connection (DATABASE_URL) is required in production.`
+      );
+    }
+  }
+
   public createUser(userData: {
     id: string;
     email: string;
     password_hash: string;
     role_id: string;
   }): User {
+    this.assertPersistenceAllowed('createUser');
     const now = new Date().toISOString();
     const newUser: User = {
       id: userData.id,
@@ -179,6 +199,7 @@ class DatabaseStore {
     district?: string;
     bio?: string;
   }): UserProfile {
+    this.assertPersistenceAllowed('createProfile');
     const now = new Date().toISOString();
     const newProfile: UserProfile = {
       id: profileData.id,
@@ -194,6 +215,32 @@ class DatabaseStore {
       updated_at: now,
     };
     this.userProfiles.set(profileData.user_id, newProfile);
+
+    // If PostgreSQL is configured, synchronize user and profile atomically
+    if (process.env.DATABASE_URL) {
+      const user = this.users.get(profileData.user_id);
+      if (user) {
+        postgresRepo.createUserWithProfile(
+          {
+            id: user.id,
+            email: user.email,
+            password_hash: user.password_hash,
+            role_id: user.role_id,
+          },
+          {
+            id: newProfile.id,
+            full_name: newProfile.full_name,
+            phone: newProfile.phone || undefined,
+            school_or_org: newProfile.school_or_org || undefined,
+            district: newProfile.district || undefined,
+            bio: newProfile.bio || undefined,
+          }
+        ).catch(err => {
+          console.error('[POSTGRES SYNC ERROR] Failed to persist user to PostgreSQL:', err.message);
+        });
+      }
+    }
+
     return newProfile;
   }
 
@@ -202,6 +249,7 @@ class DatabaseStore {
   }
 
   public updateProfile(userId: string, data: Partial<UserProfile>): UserProfile | null {
+    this.assertPersistenceAllowed('updateProfile');
     const existing = this.userProfiles.get(userId);
     if (!existing) return null;
     const updated: UserProfile = {
@@ -210,6 +258,11 @@ class DatabaseStore {
       updated_at: new Date().toISOString(),
     };
     this.userProfiles.set(userId, updated);
+    if (process.env.DATABASE_URL) {
+      postgresRepo.updateProfile(userId, data).catch(err => {
+        console.error('[POSTGRES SYNC ERROR] Failed to update profile in PostgreSQL:', err.message);
+      });
+    }
     return updated;
   }
 
@@ -218,31 +271,66 @@ class DatabaseStore {
     if (user) {
       user.last_login_at = new Date().toISOString();
       user.updated_at = new Date().toISOString();
+      if (process.env.DATABASE_URL) {
+        postgresRepo.updateUserLastLogin(userId).catch(err => {
+          console.error('[POSTGRES SYNC ERROR] Failed to update last login in PostgreSQL:', err.message);
+        });
+      }
     }
   }
 
   public updateUserPassword(userId: string, newPasswordHash: string): boolean {
+    this.assertPersistenceAllowed('updateUserPassword');
     const user = this.users.get(userId);
     if (!user) return false;
     user.password_hash = newPasswordHash;
     user.updated_at = new Date().toISOString();
+    if (process.env.DATABASE_URL) {
+      postgresRepo.updateUserPassword(userId, newPasswordHash).catch(err => {
+        console.error('[POSTGRES SYNC ERROR] Failed to update password in PostgreSQL:', err.message);
+      });
+    }
     return true;
   }
 
   public setUserActive(userId: string, isActive: boolean): boolean {
+    this.assertPersistenceAllowed('setUserActive');
     const user = this.users.get(userId);
     if (!user) return false;
     user.is_active = isActive;
     user.updated_at = new Date().toISOString();
+    if (process.env.DATABASE_URL) {
+      postgresRepo.setUserActive(userId, isActive).catch(err => {
+        console.error('[POSTGRES SYNC ERROR] Failed to update active status in PostgreSQL:', err.message);
+      });
+    }
     return true;
   }
 
-  public revokeToken(tokenOrJti: string): void {
+  public revokeToken(tokenOrJti: string, userId?: string, expiresAt?: Date): void {
+    this.assertPersistenceAllowed('revokeToken');
     this.revokedTokens.add(tokenOrJti);
+    if (process.env.DATABASE_URL) {
+      postgresRepo.revokeToken(tokenOrJti, userId, expiresAt).catch(err => {
+        console.error('[POSTGRES SYNC ERROR] Failed to persist revoked token to PostgreSQL:', err.message);
+      });
+    }
   }
 
   public isTokenRevoked(tokenOrJti: string): boolean {
     return this.revokedTokens.has(tokenOrJti);
+  }
+
+  public async isTokenRevokedAsync(tokenOrJti: string): Promise<boolean> {
+    if (this.revokedTokens.has(tokenOrJti)) return true;
+    if (process.env.DATABASE_URL) {
+      try {
+        return await postgresRepo.isTokenRevoked(tokenOrJti);
+      } catch {
+        return this.revokedTokens.has(tokenOrJti);
+      }
+    }
+    return false;
   }
 
   public logActivity(entry: {
@@ -254,6 +342,7 @@ class DatabaseStore {
     ip_address?: string | null;
     user_agent?: string | null;
   }): ActivityLog {
+    this.assertPersistenceAllowed('logActivity');
     const log: ActivityLog = {
       id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       user_id: entry.user_id,
@@ -269,6 +358,11 @@ class DatabaseStore {
     // Keep max 1000 logs in memory
     if (this.activityLogs.length > 1000) {
       this.activityLogs.pop();
+    }
+    if (process.env.DATABASE_URL) {
+      postgresRepo.logActivity(entry).catch(err => {
+        console.error('[POSTGRES SYNC ERROR] Failed to persist activity log to PostgreSQL:', err.message);
+      });
     }
     return log;
   }
