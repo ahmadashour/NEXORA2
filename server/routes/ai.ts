@@ -1,10 +1,17 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { GoogleGenAI } from '@google/genai';
+import { authMiddleware, AuthRequest, requirePermission } from '../middleware/auth';
+import { aiLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
-// Specialized curriculum science prompts bank for instant fallback
-const FALLBACK_SCIENCE_RESPONSES: Record<string, string> = {
+// Apply authentication, rate limiter, and AI permission check to all AI routes
+router.use(authMiddleware);
+router.use(requirePermission('ai:access'));
+router.use(aiLimiter);
+
+// Curated curriculum science prompts bank for instant accurate response
+const CURATED_SCIENCE_RESPONSES: Record<string, string> = {
   'صياغة خطة نشاط استقصائي لدرس التوازن الكيميائي': `خطة نشاط استقصائي: أثر تغير التركيز على موضع الاتزان (قاعدة لوشاتيليه)
 
 🎯 الأهداف السلوكية:
@@ -62,7 +69,7 @@ const FALLBACK_SCIENCE_RESPONSES: Record<string, string> = {
 - الفكرة: إنزيم البوليفينول أوكسيديز يؤكسد المركبات الفينولية في التفاح فتتحول للون البني، ويعمل فيتامين C كمانع أكسدة فعال.`
 };
 
-router.post('/chat', async (req: Request, res: Response) => {
+router.post('/chat', async (req: AuthRequest, res: Response) => {
   const { prompt } = req.body;
 
   if (!prompt || typeof prompt !== 'string' || prompt.trim() === '') {
@@ -76,12 +83,32 @@ router.post('/chat', async (req: Request, res: Response) => {
 
   const trimmedPrompt = prompt.trim();
 
-  // If GEMINI_API_KEY is available, call the official Google Gen AI SDK server-side
+  // Enforce prompt length boundary
+  if (trimmedPrompt.length > 2000) {
+    res.status(400).json({
+      success: false,
+      error: 'PROMPT_TOO_LONG',
+      message: 'نص الاستفسار يتجاوز الحد الأقصى المسموح به (2000 حرف).',
+    });
+    return;
+  }
+
+  // 1. Check curated responses bank
+  if (CURATED_SCIENCE_RESPONSES[trimmedPrompt]) {
+    res.json({
+      success: true,
+      reply: CURATED_SCIENCE_RESPONSES[trimmedPrompt],
+      source: 'nexora-curriculum-engine',
+    });
+    return;
+  }
+
+  // 2. Call Gemini API if API key is configured with strict 10s timeout
   const apiKey = process.env.GEMINI_API_KEY;
   if (apiKey) {
     try {
       const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
+      const apiCall = ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: trimmedPrompt,
         config: {
@@ -89,7 +116,13 @@ router.post('/chat', async (req: Request, res: Response) => {
         },
       });
 
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('AI_TIMEOUT')), 10000)
+      );
+
+      const response = await Promise.race([apiCall, timeoutPromise]);
       const text = response.text || '';
+
       res.json({
         success: true,
         reply: text,
@@ -97,23 +130,24 @@ router.post('/chat', async (req: Request, res: Response) => {
       });
       return;
     } catch (apiError: unknown) {
-      console.warn('[NEXORA AI] Gemini API call error, falling back to local curriculum knowledge base:', apiError);
+      const errMsg = apiError instanceof Error ? apiError.message : 'Unknown AI error';
+      if (errMsg === 'AI_TIMEOUT') {
+        res.status(504).json({
+          success: false,
+          error: 'AI_TIMEOUT',
+          message: 'استغرق المساعد الذكي وقتاً أطول من المتوقع (أكثر من 10 ثوانٍ). يرجى إعادة المحاولة بصياغة أقصر.',
+        });
+        return;
+      }
+      console.warn('[NEXORA AI] Gemini generation error:', errMsg);
     }
   }
 
-  // Graceful Curriculum-Aligned Fallback
-  const fallback = FALLBACK_SCIENCE_RESPONSES[trimmedPrompt] ||
-    `تمت معالجة استفسارك العلمي: "${trimmedPrompt}".\n\n` +
-    `التوصيات المنهجية المعتمدة في منصة NEXORA:\n` +
-    `1. ربط المفهوم بالكفايات الأساسية للعلوم وفق معايير 2026.\n` +
-    `2. استخدام المحاكاة التفاعلية عبر مختبر NEXORA الافتراضي لتمثيل التجربة عملياً.\n` +
-    `3. إشراك المتعلمين من خلال أسئلة التفكير الناقد وحل المشكلات والاستقصاء الموجه.\n` +
-    `4. إتاحة مساحة للتقويم التكويني الفوري للتأكد من رسوخ المفهوم العلمي لدى المتعلمين.`;
-
-  res.json({
-    success: true,
-    reply: fallback,
-    source: 'nexora-curriculum-engine',
+  // 3. If Gemini is not configured or failed, and not in curated responses, reject gracefully
+  res.status(503).json({
+    success: false,
+    error: 'AI_SERVICE_UNAVAILABLE',
+    message: 'خدمة المساعد الذكي التوليدي غير متوفرة حالياً. يمكنك استخدام الأسئلة الاسترشادية الجاهزة للمناهج.',
   });
 });
 

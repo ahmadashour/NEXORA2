@@ -82,9 +82,15 @@ export class PostgresRepository {
       });
     } catch (err: unknown) {
       if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === '23505') {
-        const dupError = new Error('EMAIL_ALREADY_EXISTS: البريد الإلكتروني مسجل مسبقاً في قاعدة بيانات NEXORA');
-        (dupError as { statusCode?: number }).statusCode = 409;
-        throw dupError;
+        const constraint = 'constraint' in err ? String((err as { constraint: unknown }).constraint) : '';
+        if (constraint === 'users_email_key' || constraint.toLowerCase().includes('email')) {
+          const dupError = new Error('EMAIL_ALREADY_EXISTS: البريد الإلكتروني مسجل مسبقاً في قاعدة بيانات NEXORA');
+          (dupError as { statusCode?: number }).statusCode = 409;
+          throw dupError;
+        }
+        const conflictErr = new Error(`UNIQUE_VIOLATION: تعارض في البيانات المدخلة مع قيد فريد (${constraint || '23505'})`);
+        (conflictErr as { statusCode?: number }).statusCode = 409;
+        throw conflictErr;
       }
       throw err;
     }
@@ -109,9 +115,15 @@ export class PostgresRepository {
       return res.rows[0];
     } catch (err: unknown) {
       if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === '23505') {
-        const dupError = new Error('EMAIL_ALREADY_EXISTS: البريد الإلكتروني مسجل مسبقاً في قاعدة بيانات NEXORA');
-        (dupError as { statusCode?: number }).statusCode = 409;
-        throw dupError;
+        const constraint = 'constraint' in err ? String((err as { constraint: unknown }).constraint) : '';
+        if (constraint === 'users_email_key' || constraint.toLowerCase().includes('email')) {
+          const dupError = new Error('EMAIL_ALREADY_EXISTS: البريد الإلكتروني مسجل مسبقاً في قاعدة بيانات NEXORA');
+          (dupError as { statusCode?: number }).statusCode = 409;
+          throw dupError;
+        }
+        const conflictErr = new Error(`UNIQUE_VIOLATION: تعارض في البيانات المدخلة مع قيد فريد (${constraint || '23505'})`);
+        (conflictErr as { statusCode?: number }).statusCode = 409;
+        throw conflictErr;
       }
       throw err;
     }
@@ -231,6 +243,17 @@ export class PostgresRepository {
   }
 
   /**
+   * Updates user role assignment strictly via administrative actions
+   */
+  public async updateUserRole(userId: string, roleId: string): Promise<boolean> {
+    const res = await query(
+      'UPDATE users SET role_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [roleId, userId]
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  /**
    * Persistently revokes a token by inserting its JTI into revoked_tokens
    */
   public async revokeToken(jti: string, userId?: string, expiresAt?: Date): Promise<void> {
@@ -290,19 +313,20 @@ export class PostgresRepository {
   }
 
   /**
-   * Queries activity logs for user or globally
+   * Queries activity logs for user or globally with capped limit
    */
   public async getActivityLogs(userId?: string, limit = 50): Promise<ActivityLog[]> {
+    const safeLimit = Math.min(Math.max(1, Number(limit) || 20), 100);
     if (userId) {
       const res = await query<ActivityLog>(
         'SELECT * FROM activity_logs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2',
-        [userId, limit]
+        [userId, safeLimit]
       );
       return res.rows;
     }
     const res = await query<ActivityLog>(
       'SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT $1',
-      [limit]
+      [safeLimit]
     );
     return res.rows;
   }
@@ -353,6 +377,17 @@ export class PostgresRepository {
   public async getRoles(): Promise<Role[]> {
     const res = await query<Role>('SELECT * FROM roles ORDER BY id ASC');
     return res.rows;
+  }
+
+  /**
+   * Retrieves a role by ID
+   */
+  public async getRoleById(id: string): Promise<Role | null> {
+    const res = await query<Role>(
+      'SELECT * FROM roles WHERE id = $1 LIMIT 1',
+      [id.trim()]
+    );
+    return res.rows[0] || null;
   }
 
   /**

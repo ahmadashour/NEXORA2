@@ -303,6 +303,14 @@ class InMemoryDatabaseStore {
     return true;
   }
 
+  public async updateUserRole(userId: string, roleId: string): Promise<boolean> {
+    const user = this.users.get(userId);
+    if (!user) return false;
+    user.role_id = roleId;
+    user.updated_at = new Date().toISOString();
+    return true;
+  }
+
   private normalizeToken(tokenOrJti: string): string {
     const trimmed = (tokenOrJti || '').trim();
     return trimmed.length > 255
@@ -524,6 +532,14 @@ class DatabaseStore {
     return await this.inMemory.setUserActive(userId, isActive);
   }
 
+  public async updateUserRole(userId: string, roleId: string): Promise<boolean> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.updateUserRole(userId, roleId);
+    }
+    this.assertPersistenceAllowed('updateUserRole');
+    return await this.inMemory.updateUserRole(userId, roleId);
+  }
+
   public async revokeToken(tokenOrJti: string, userId?: string, expiresAt?: Date): Promise<void> {
     if (this.isPostgresActive()) {
       await postgresRepo.revokeToken(tokenOrJti, userId, expiresAt);
@@ -578,8 +594,7 @@ class DatabaseStore {
 
   public async getRoles(): Promise<Role[]> {
     if (this.isPostgresActive()) {
-      const roles = await postgresRepo.getRoles();
-      if (roles.length > 0) return roles;
+      return await postgresRepo.getRoles();
     }
     this.assertPersistenceAllowed('getRoles');
     return await this.inMemory.getRoles();
@@ -587,9 +602,7 @@ class DatabaseStore {
 
   public async getRoleById(id: string): Promise<Role | null> {
     if (this.isPostgresActive()) {
-      const roles = await postgresRepo.getRoles();
-      const match = roles.find(r => r.id === id);
-      if (match) return match;
+      return await postgresRepo.getRoleById(id);
     }
     this.assertPersistenceAllowed('getRoleById');
     return await this.inMemory.getRoleById(id);
@@ -597,8 +610,7 @@ class DatabaseStore {
 
   public async getRoleByCode(code: string): Promise<Role | null> {
     if (this.isPostgresActive()) {
-      const role = await postgresRepo.getRoleByCode(code);
-      if (role) return role;
+      return await postgresRepo.getRoleByCode(code);
     }
     this.assertPersistenceAllowed('getRoleByCode');
     return await this.inMemory.getRoleByCode(code);
@@ -616,7 +628,7 @@ class DatabaseStore {
     const hasDatabaseUrl = this.isPostgresActive();
     return {
       mode: hasDatabaseUrl ? 'postgres-primary-active' : 'memory-resilient-store',
-      status: 'healthy',
+      status: this.isProduction() && !hasDatabaseUrl ? 'degraded_insecure_sandbox' : 'healthy',
       tables: ['roles', 'permissions', 'role_permissions', 'users', 'user_profiles', 'activity_logs', 'revoked_tokens'],
       inMemoryStructures: {
         roles: 'Map<string, Role>',
@@ -654,7 +666,9 @@ class DatabaseStore {
       },
       complianceNotice: postgresStatus.isReachable
         ? 'PostgreSQL connection active and primary in accordance with Phase 3.2 blueprint.'
-        : 'PostgreSQL instance is NOT reachable in this environment. Operating with offline dev sandbox.',
+        : this.isProduction()
+          ? 'CRITICAL: PostgreSQL instance is NOT reachable in production environment.'
+          : 'PostgreSQL instance is NOT reachable in this environment. Operating with offline dev sandbox.',
     };
   }
 }

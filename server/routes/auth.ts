@@ -31,8 +31,17 @@ router.post('/register', validateRegister, async (req: AuthRequest, res: Respons
       return;
     }
 
-    // Resolve Role
-    const roleRecord = (await db.getRoleByCode(requestedRole)) || (await db.getRoleByCode('TEACH'))!;
+    // Resolve validated educational role with safe TEACH fallback
+    const targetRole = req.body.role || 'TEACH';
+    const roleRecord = (await db.getRoleByCode(targetRole)) || (await db.getRoleByCode('TEACH'));
+    if (!roleRecord) {
+      res.status(500).json({
+        success: false,
+        error: 'DEFAULT_ROLE_UNAVAILABLE',
+        message: 'تعذر تحديد الرتبة التعليمية الافتراضية للنظام',
+      });
+      return;
+    }
     
     // Hash password securely with bcrypt (10 salt rounds)
     const password_hash = await bcrypt.hash(password, 10);
@@ -68,7 +77,15 @@ router.post('/register', validateRegister, async (req: AuthRequest, res: Respons
       user_agent: req.headers['user-agent'],
     });
 
-    const sanitized = (await db.getSanitizedUser(newUser.id))!;
+    const sanitized = await db.getSanitizedUser(newUser.id);
+    if (!sanitized) {
+      res.status(500).json({
+        success: false,
+        error: 'USER_RETRIEVAL_FAILED',
+        message: 'تعذر استرجاع بيانات المستخدم المنشأ',
+      });
+      return;
+    }
     const token = generateToken(sanitized);
     const permissions = await db.getRolePermissions(roleRecord.id);
 
@@ -172,7 +189,15 @@ router.post('/login', validateLogin, async (req: AuthRequest, res: Response) => 
       user_agent: req.headers['user-agent'],
     });
 
-    const sanitized = (await db.getSanitizedUser(user.id))!;
+    const sanitized = await db.getSanitizedUser(user.id);
+    if (!sanitized) {
+      res.status(500).json({
+        success: false,
+        error: 'USER_RETRIEVAL_FAILED',
+        message: 'تعذر تحميل بيانات المستخدم بعد الدخول',
+      });
+      return;
+    }
     const token = generateToken(sanitized);
     const permissions = await db.getRolePermissions(user.role_id);
     const profile = await db.getProfileByUserId(user.id);
@@ -259,15 +284,21 @@ router.post('/logout', authMiddleware, async (req: AuthRequest, res: Response) =
       await db.revokeToken(req.tokenClaims.jti, user.id);
     }
 
-    // Clear session cookie if client utilized HttpOnly cookie auth
-    if (req.cookies?.nexora_token) {
-      res.clearCookie('nexora_token', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-      });
-    }
+    // Clear session cookies if client utilized cookie auth
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax' as const,
+      path: '/',
+    };
+    res.clearCookie('nexora_token', cookieOptions);
+    res.clearCookie('auth_token', cookieOptions);
+    res.clearCookie('nexora_csrf', {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
 
     await db.logActivity({
       user_id: user.id,
@@ -353,7 +384,24 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
-    await db.updateUserPassword(user.id, newHash);
+    const updated = await db.updateUserPassword(user.id, newHash);
+    if (!updated) {
+      res.status(500).json({
+        success: false,
+        error: 'PASSWORD_UPDATE_FAILED',
+        message: 'تعذر تحديث كلمة المرور في قاعدة البيانات',
+      });
+      return;
+    }
+
+    // Revoke current session tokens on password change
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      await db.revokeToken(authHeader.split(' ')[1]);
+    }
+    if (req.tokenClaims?.jti) {
+      await db.revokeToken(req.tokenClaims.jti, user.id);
+    }
 
     await db.logActivity({
       user_id: user.id,
@@ -364,7 +412,7 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
 
     res.status(200).json({
       success: true,
-      message: 'تم تحديث كلمة المرور بنجاح في منظومة NEXORA',
+      message: 'تم تحديث كلمة المرور بنجاح في منظومة NEXORA وإبطال الجلسات السابقة',
     });
   } catch (err: unknown) {
     if (err instanceof DatabaseUnavailableError || (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 503)) {

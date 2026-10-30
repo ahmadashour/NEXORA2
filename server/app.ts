@@ -10,16 +10,16 @@ import aiRouter from './routes/ai';
 export function createExpressApp(): Express {
   const app = express();
 
-  // Trust reverse proxy (Hostinger Nginx, Cloud Run)
-  app.set('trust proxy', true);
+  // Disable information leakage header
+  app.disable('x-powered-by');
+
+  // Trust exactly 1 reverse proxy hop (Hostinger Nginx, Cloud Run)
+  app.set('trust proxy', 1);
 
   // CORS Configuration
   const allowedOrigins = [
     'https://nexora.ashouracademy.com',
     'https://ashouracademy.com',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'http://localhost:5173',
   ];
 
   app.use(cors({
@@ -30,8 +30,10 @@ export function createExpressApp(): Express {
       const isAllowed =
         allowedOrigins.includes(origin) ||
         origin.endsWith('.ashouracademy.com') ||
-        origin === 'https://ashouracademy.com' ||
-        (process.env.NODE_ENV !== 'production' && (origin.endsWith('.run.app') || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)));
+        (process.env.NODE_ENV !== 'production' && (
+          origin.endsWith('.run.app') ||
+          /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+        ));
 
       if (isAllowed) {
         return callback(null, true);
@@ -41,7 +43,7 @@ export function createExpressApp(): Express {
       return callback(new Error(`CORS_ORIGIN_BLOCKED: Origin '${origin}' is not permitted by NEXORA security policy.`));
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token'],
   }));
 
@@ -58,6 +60,17 @@ export function createExpressApp(): Express {
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('X-XSS-Protection', '1; mode=block');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+
+    if (process.env.NODE_ENV === 'production') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    }
+
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' https://generativelanguage.googleapis.com https://*.ashouracademy.com; frame-ancestors 'self';"
+    );
+
     next();
   });
 

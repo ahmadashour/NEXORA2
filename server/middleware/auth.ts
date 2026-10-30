@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { db, DatabaseUnavailableError } from '../db';
 import { SanitizedUser } from '../db/types';
@@ -49,7 +50,7 @@ export function getJwtSecret(): string {
 export function generateToken(user: SanitizedUser): string {
   const secret = getJwtSecret();
   const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
-  const jti = `jti_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+  const jti = crypto.randomUUID();
 
   return jwt.sign(
     {
@@ -61,7 +62,12 @@ export function generateToken(user: SanitizedUser): string {
       name: user.full_name,
     },
     secret,
-    { expiresIn: expiresIn as jwt.SignOptions['expiresIn'] }
+    {
+      algorithm: 'HS256',
+      issuer: 'nexora.ashouracademy.com',
+      audience: 'nexora-users',
+      expiresIn: expiresIn as jwt.SignOptions['expiresIn'],
+    }
   );
 }
 
@@ -90,11 +96,14 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
       // Enforce CSRF protection for mutating requests when authenticating via ambient cookie
       const mutatingMethods = ['POST', 'PUT', 'DELETE', 'PATCH'];
       if (mutatingMethods.includes(req.method.toUpperCase())) {
-        const csrfHeader = req.headers['x-csrf-token'] || req.headers['x-requested-with'];
+        const csrfHeader = req.headers['x-csrf-token'];
+        const requestedWith = req.headers['x-requested-with'];
         const csrfCookie = req.cookies.nexora_csrf;
 
-        // If CSRF token is present in cookie, header must match; or X-Requested-With must be present
-        if (!csrfHeader || (csrfCookie && csrfHeader !== csrfCookie && csrfHeader !== 'XMLHttpRequest')) {
+        const hasValidCsrfToken = Boolean(csrfCookie && csrfHeader && csrfHeader === csrfCookie);
+        const hasRequestedWithHeader = requestedWith === 'XMLHttpRequest';
+
+        if (!hasValidCsrfToken && !hasRequestedWithHeader) {
           res.status(403).json({
             success: false,
             error: 'CSRF_VALIDATION_FAILED',
@@ -115,19 +124,23 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
     return;
   }
 
-  // Check if token or JTI is revoked (checks both memory and PostgreSQL revoked_tokens table)
-  if (await db.isTokenRevokedAsync(token)) {
-    res.status(401).json({
-      success: false,
-      error: 'TOKEN_REVOKED',
-      message: 'تم إبطال هذا الرمز عند تسجيل الخروج، يرجى تسجيل الدخول مجدداً',
-    });
-    return;
-  }
-
   try {
+    // Check if token or JTI is revoked (checks both memory and PostgreSQL revoked_tokens table)
+    if (await db.isTokenRevokedAsync(token)) {
+      res.status(401).json({
+        success: false,
+        error: 'TOKEN_REVOKED',
+        message: 'تم إبطال هذا الرمز عند تسجيل الخروج، يرجى تسجيل الدخول مجدداً',
+      });
+      return;
+    }
+
     const secret = getJwtSecret();
-    const decoded = jwt.verify(token, secret) as {
+    const decoded = jwt.verify(token, secret, {
+      algorithms: ['HS256'],
+      issuer: 'nexora.ashouracademy.com',
+      audience: 'nexora-users',
+    }) as {
       jti?: string;
       userId: string;
       email: string;
@@ -208,5 +221,47 @@ export function requireRole(allowedRoles: string[]) {
     }
 
     next();
+  };
+}
+
+/**
+ * Permission-Based Access Control Middleware
+ */
+export function requirePermission(permissionCode: string) {
+  return async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        error: 'UNAUTHORIZED',
+        message: 'يتطلب هذا الإجراء تسجيل الدخول أولاً',
+      });
+      return;
+    }
+
+    try {
+      const permissions = await db.getRolePermissions(req.user.role_id);
+      const hasPermission = permissions.some(p => p.code === permissionCode);
+
+      if (!hasPermission) {
+        res.status(403).json({
+          success: false,
+          error: 'FORBIDDEN_PERMISSION',
+          message: `ليس لديك الصلاحية المطلوبة (${permissionCode}) للوصول إلى هذه الميزة`,
+        });
+        return;
+      }
+
+      next();
+    } catch (err: unknown) {
+      if (err instanceof DatabaseUnavailableError || (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 503)) {
+        res.status(503).json({
+          success: false,
+          error: 'DATABASE_UNAVAILABLE',
+          message: 'قاعدة بيانات PostgreSQL الدائمة غير متوفرة أو غير متصلة في بيئة الإنتاج',
+        });
+        return;
+      }
+      next(err);
+    }
   };
 }

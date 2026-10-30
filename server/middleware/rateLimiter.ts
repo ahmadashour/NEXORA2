@@ -6,11 +6,13 @@ interface RateLimitRecord {
 }
 
 /**
- * In-memory sliding-window rate limiter for sensitive authentication routes
- * Default: 30 requests per 10 minutes per IP address
+ * Robust in-memory sliding-window rate limiter.
+ * Uses trusted req.ip (evaluated safely by Express with trusted proxy hops)
+ * to prevent IP spoofing attacks via manipulated X-Forwarded-For headers.
  */
-export function createRateLimiter(options: { maxRequests: number; windowMs: number }) {
+export function createRateLimiter(options: { maxRequests: number; windowMs: number; keyPrefix?: string }) {
   const store = new Map<string, RateLimitRecord>();
+  const prefix = options.keyPrefix ? `${options.keyPrefix}:` : '';
 
   // Cleanup expired entries periodically
   setInterval(() => {
@@ -23,14 +25,15 @@ export function createRateLimiter(options: { maxRequests: number; windowMs: numb
   }, 60000).unref();
 
   return (req: Request, res: Response, next: NextFunction): void => {
-    const forwarded = req.headers['x-forwarded-for'];
-    const ip = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : Array.isArray(forwarded) ? forwarded[0] : null) || req.ip || req.socket.remoteAddress || 'unknown-client';
+    // Strictly rely on Express req.ip (never parse raw untrusted X-Forwarded-For manually)
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown-client';
+    const key = `${prefix}${clientIp}`;
     const now = Date.now();
 
-    const record = store.get(ip);
+    const record = store.get(key);
 
     if (!record || record.resetAt <= now) {
-      store.set(ip, {
+      store.set(key, {
         count: 1,
         resetAt: now + options.windowMs,
       });
@@ -57,3 +60,34 @@ export function createRateLimiter(options: { maxRequests: number; windowMs: numb
     next();
   };
 }
+
+// Pre-configured route limiters
+export const generalAuthLimiter = createRateLimiter({
+  maxRequests: Number(process.env.AUTH_RATE_LIMIT_MAX) || 30,
+  windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS) || 10 * 60 * 1000,
+  keyPrefix: 'auth',
+});
+
+export const loginLimiter = createRateLimiter({
+  maxRequests: 10,
+  windowMs: 5 * 60 * 1000, // 10 attempts per 5 minutes
+  keyPrefix: 'login',
+});
+
+export const registerLimiter = createRateLimiter({
+  maxRequests: 5,
+  windowMs: 15 * 60 * 1000, // 5 registrations per 15 minutes
+  keyPrefix: 'register',
+});
+
+export const passwordLimiter = createRateLimiter({
+  maxRequests: 5,
+  windowMs: 15 * 60 * 1000, // 5 attempts per 15 minutes
+  keyPrefix: 'pwd',
+});
+
+export const aiLimiter = createRateLimiter({
+  maxRequests: 20,
+  windowMs: 60 * 1000, // 20 requests per minute
+  keyPrefix: 'ai',
+});

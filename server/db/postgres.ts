@@ -22,6 +22,22 @@ let currentConnectionString: string | null = null;
 
 /**
  * Configure and initialize PostgreSQL Connection Pool
+/**
+ * Safely parses the hostname from a PostgreSQL connection string to determine if it is loopback.
+ * Handles passwords or pathnames that might coincidentally contain "localhost" or "127.0.0.1".
+ */
+export function isLoopbackHost(connStr: string): boolean {
+  try {
+    const parsed = new URL(connStr);
+    const host = parsed.hostname.toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Configure and initialize PostgreSQL Connection Pool
  * Optimized for Supabase Supavisor Transaction Pooler (Port 6543) and Hostinger hosting.
  * Supports TLS with custom CA certificate verification.
  */
@@ -38,6 +54,7 @@ export function getPostgresPool(): pg.Pool | null {
   if (pool && currentConnectionString !== connectionString) {
     pool.end().catch(() => {});
     pool = null;
+    currentConnectionString = null;
   }
 
   // Detect Supavisor Transaction Pooler (port 6543 or pooler hostname)
@@ -47,11 +64,11 @@ export function getPostgresPool(): pg.Pool | null {
   let sslConfig: pg.ConnectionConfig['ssl'] = false;
   const isProduction = process.env.NODE_ENV === 'production';
   const isSupabase = connectionString.includes('supabase.com');
-  const isLocal = connectionString.includes('127.0.0.1') || connectionString.includes('localhost');
+  const isLocal = isLoopbackHost(connectionString);
 
   // Enforce TLS:
   // - Local tests can set DB_SSL='false' when connecting to local test instances
-  // - External connections in production MUST always enforce SSL
+  // - External connections in production MUST always enforce SSL with certificate verification
   // - No environment variable can bypass TLS or certificate verification on external production connections
   const requireSsl = isProduction
     ? !isLocal
@@ -83,14 +100,21 @@ export function getPostgresPool(): pg.Pool | null {
     }
   }
 
+  // Validate pool size: positive integer bounded between 1 and 50
+  const parsedMax = Number(process.env.DB_POOL_MAX);
+  const safeMax = Number.isInteger(parsedMax) && parsedMax >= 1 && parsedMax <= 50 ? parsedMax : 10;
+
   pool = new Pool({
     connectionString,
     ssl: sslConfig,
-    max: Number(process.env.DB_POOL_MAX || 10), // Safe maximum for Hostinger and Supabase Free Tier
-    idleTimeoutMillis: 30000,                   // 30 seconds idle timeout
-    connectionTimeoutMillis: 5000,               // 5 seconds connection timeout
+    max: safeMax,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
     allowExitOnIdle: false,
   });
+
+  // Record connection string AFTER pool is successfully initialized
+  currentConnectionString = connectionString;
 
   pool.on('error', (err) => {
     console.error('[POSTGRES POOL ERROR] Unexpected client error:', err.message);
@@ -183,6 +207,7 @@ export async function withTransaction<T>(
     throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE: تعذر الحصول على اتصال من مجمع PostgreSQL.');
   }
 
+  let isDamagedClient = false;
   try {
     await client.query('BEGIN');
     const result = await callback(client);
@@ -192,20 +217,28 @@ export async function withTransaction<T>(
     try {
       await client.query('ROLLBACK');
     } catch (rbErr) {
+      isDamagedClient = true;
       console.error('[POSTGRES TRANSACTION ROLLBACK ERROR]', rbErr);
     }
     if (isConnectionError(err)) {
+      isDamagedClient = true;
       throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE: انقطع الاتصال بقاعدة بيانات PostgreSQL أثناء تنفيذ المعاملة.');
     }
     throw err;
   } finally {
-    client.release();
+    // When a connection fails or rollback is rejected, pass truthy flag to release()
+    // so pg safely discards the broken socket from the pool instead of re-leasing it.
+    client.release(isDamagedClient);
   }
 }
 
 export interface PostgresConnectionDiagnostic {
   isConfigured: boolean;
   isReachable: boolean;
+  databaseConfigured: boolean;
+  databaseReachable: boolean;
+  databaseHealthy: boolean;
+  storageMode: string;
   latencyMs?: number;
   serverVersion?: string;
   poolState?: {
@@ -225,6 +258,10 @@ export async function checkPostgresConnection(): Promise<PostgresConnectionDiagn
     return {
       isConfigured: false,
       isReachable: false,
+      databaseConfigured: false,
+      databaseReachable: false,
+      databaseHealthy: false,
+      storageMode: process.env.NODE_ENV === 'production' ? 'UNCONFIGURED_PRODUCTION' : 'memory-resilient-store',
       error: 'DATABASE_URL is unset or invalid. Application is running with isolated local fallback.',
     };
   }
@@ -234,6 +271,10 @@ export async function checkPostgresConnection(): Promise<PostgresConnectionDiagn
     return {
       isConfigured: true,
       isReachable: false,
+      databaseConfigured: true,
+      databaseReachable: false,
+      databaseHealthy: false,
+      storageMode: 'postgres-pool-failed',
       error: 'Failed to create PostgreSQL connection pool.',
     };
   }
@@ -253,6 +294,10 @@ export async function checkPostgresConnection(): Promise<PostgresConnectionDiagn
     return {
       isConfigured: true,
       isReachable: true,
+      databaseConfigured: true,
+      databaseReachable: true,
+      databaseHealthy: true,
+      storageMode: 'postgres-primary-active',
       latencyMs,
       serverVersion: versionRow?.version,
       poolState: {
@@ -266,6 +311,10 @@ export async function checkPostgresConnection(): Promise<PostgresConnectionDiagn
     return {
       isConfigured: true,
       isReachable: false,
+      databaseConfigured: true,
+      databaseReachable: false,
+      databaseHealthy: false,
+      storageMode: 'postgres-disconnected',
       error: `PostgreSQL unreachable: ${errorMsg}`,
       poolState: {
         totalCount: p.totalCount,
@@ -283,6 +332,7 @@ export async function closePostgresPool(): Promise<void> {
   if (pool) {
     await pool.end();
     pool = null;
+    currentConnectionString = null;
     console.log('[POSTGRES] Pool disconnected.');
   }
 }
