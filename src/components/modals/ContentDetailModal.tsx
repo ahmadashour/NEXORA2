@@ -124,12 +124,12 @@ export const ContentDetailModal: React.FC<ContentDetailModalProps> = ({ item, on
                   onClick={handleRegister}
                   className="w-full mt-3 py-2.5 rounded-lg text-xs font-bold text-white bg-[#0B3D5B] hover:bg-[#072a3f] transition-colors cursor-pointer shadow-xs"
                 >
-                  تأكيد حجز مقعد في الفعالية
+                  تسجيل طلب حجز مقعد في الفعالية
                 </button>
               ) : (
-                <div className="mt-3 p-2.5 rounded-lg bg-emerald-100 text-emerald-800 text-xs font-bold flex items-center justify-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-                  <span>تم تأكيد تسجيلك بنجاح! ستصلك رسالة بالدعوة والرابط عبر البريد.</span>
+                <div className="mt-3 p-2.5 rounded-lg bg-cyan-50 border border-cyan-200 text-cyan-900 text-xs font-medium flex items-center justify-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#00A7B5]" />
+                  <span>تم تسجيل طلب حجز المقعد بنجاح في المعاينة المحلية. سيتم تأكيد الحجوزات فور تفعيل الخادم السحابي.</span>
                 </div>
               )}
             </div>
@@ -137,24 +137,24 @@ export const ContentDetailModal: React.FC<ContentDetailModalProps> = ({ item, on
 
           {/* Description */}
           <div>
-            <h4 className="text-xs font-bold text-[#0B3D5B] mb-2">الوصف المنهجي المعتمد:</h4>
+            <h4 className="text-xs font-bold text-[#0B3D5B] mb-2">الوصف والمحاور التعليمية:</h4>
             <p className="text-slate-600 leading-relaxed">{item.description}</p>
           </div>
 
           {/* Resource Details / Download Action */}
           {item.category === 'resource' && (
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <span className="font-bold text-slate-800 text-xs block">الملف الرقمي المعتمد</span>
-                <span className="text-[11px] text-slate-500">{item.fileSize} · متاح للتحميل والطباعة الميدانية</span>
+                <span className="font-bold text-slate-800 text-xs block">الملف الرقمي المرفق</span>
+                <span className="text-[11px] text-slate-500">{item.fileSize} · متاح للمعاينة الميدانية والطباعة</span>
               </div>
 
               <button
                 onClick={handleDownload}
-                className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[#00A7B5] hover:bg-[#008591] transition-colors flex items-center gap-2 cursor-pointer shadow-xs"
+                className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[#00A7B5] hover:bg-[#008591] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>{downloaded ? 'جاري التحميل...' : 'تحميل الملف'}</span>
+                <span>{downloaded ? 'الملف متاح للمعاينة حالياً (قيد الربط بالتخزين)' : 'تحميل الملف الرقمي'}</span>
               </button>
             </div>
           )}

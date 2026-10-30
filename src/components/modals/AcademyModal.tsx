@@ -88,9 +88,9 @@ export const AcademyModal: React.FC<AcademyModalProps> = ({ isOpen, onClose }) =
 
         {/* Toast */}
         {enrolledCourse && (
-          <div className="bg-emerald-50 border-b border-emerald-200 px-6 py-2.5 text-xs text-emerald-800 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>تم تسجيل التحاقك في: "{enrolledCourse}" بنجاح! تم إرسال جدول المحاضرات لبريدك.</span>
+          <div className="bg-cyan-50 border-b border-cyan-200 px-6 py-2.5 text-xs text-cyan-900 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-[#00A7B5] shrink-0" />
+            <span>تم تسجيل طلب الالتحاق بمسار: "{enrolledCourse}" بنجاح في المعاينة المحلية. سيتم تأكيد المواعيد فور تفعيل خادم التسجيل.</span>
           </div>
         )}
 

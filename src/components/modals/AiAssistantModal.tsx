@@ -139,7 +139,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({ isOpen, onCl
               <div className="flex items-center gap-2">
                 <span className="font-latin text-xs font-bold text-[#00A7B5] tracking-wider">NEXORA AI</span>
                 <span className="text-white/40">·</span>
-                <span className="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded">مساعد تربوي معتمد</span>
+                <span className="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded">معاينة تجريبية للمساعد</span>
               </div>
               <h3 className="text-base sm:text-lg font-bold">المساعد الذكي لتعليم العلوم</h3>
             </div>
@@ -242,7 +242,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({ isOpen, onCl
             </button>
           </form>
           <p className="text-[10px] text-slate-400 text-center mt-2">
-            تم ضبط المساعد الذكي لمطابقة المناهج العلمية المعتمدة لقطاع التعليم العام.
+            يعمل المساعد حالياً بنماذج إرشادية تجريبية مسبقة الإعداد، وسيتم ربطه بنماذج الذكاء الاصطناعي التوليدي عبر الخادم في المرحلة القادمة.
           </p>
         </div>
 

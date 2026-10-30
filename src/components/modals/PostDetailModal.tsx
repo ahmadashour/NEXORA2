@@ -116,7 +116,7 @@ export const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, onClose 
 
               <button
                 type="button"
-                onClick={() => setToast({ type: 'success', message: 'جاري تنزيل الملفات والحقائب المصاحبة للمبادرة بنجاح.' })}
+                onClick={() => setToast({ type: 'info', message: 'الملفات المرفقة غير متوفرة للتنزيل الفعلي حالياً — متاح الاطلاع على الخطوات والملخص لحين ربط خدمة التخزين السحابية.' })}
                 className="px-3.5 py-2 rounded-lg text-xs font-bold text-white bg-[#2E9E6F] hover:bg-[#25835b] transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <Download className="w-3.5 h-3.5" />

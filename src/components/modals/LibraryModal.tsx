@@ -77,8 +77,8 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
   });
 
   const handleDownload = (title: string) => {
-    setDownloadSuccess(`تم بدء تحميل: "${title}" بصيغة PDF عالية الدقة.`);
-    setTimeout(() => setDownloadSuccess(null), 3000);
+    setDownloadSuccess(`الملف الرقمي الخاص بـ "${title}" متاح للمعاينة المنهجية حالياً — التحميل المباشر قيد الربط بمستودع التخزين السحابي.`);
+    setTimeout(() => setDownloadSuccess(null), 3500);
   };
 
   return (
@@ -138,10 +138,10 @@ export const LibraryModal: React.FC<LibraryModalProps> = ({ isOpen, onClose }) =
           </div>
         </div>
 
-        {/* Toast */}
+        {/* Notice */}
         {downloadSuccess && (
-          <div className="bg-emerald-50 border-b border-emerald-200 px-6 py-2 text-xs text-emerald-800 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <div className="bg-cyan-50 border-b border-cyan-200 px-6 py-2.5 text-xs text-cyan-900 flex items-center gap-2">
+            <Library className="w-4 h-4 text-[#00A7B5] shrink-0" />
             <span>{downloadSuccess}</span>
           </div>
         )}

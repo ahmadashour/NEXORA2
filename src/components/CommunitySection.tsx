@@ -84,13 +84,13 @@ export const CommunitySection: React.FC<CommunitySectionProps> = ({
                 بيئة تشاركية لتبادل أفضل الممارسات
               </h3>
               <p className="text-xs text-slate-600 leading-relaxed mb-6">
-                انضم إلى أكثر من 3,400 معلم ورئيس قسم يشاركون تحضيراتهم، كراسات أنشطتهم المعملية، ونماذج التقييم المعتمدة لرفع مستوى تعليم العلوم.
+                انضم إلى أكثر من 3,400 معلم ورئيس قسم يشاركون تحضيراتهم، كراسات أنشطتهم المعملية، ونماذج التقييم التخصصية لرفع مستوى تعليم العلوم.
               </p>
             </div>
 
             <div className="pt-4 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-500">
               <span>مبادرات مجازة هذا الشهر: <strong className="text-slate-800 font-bold">142</strong></span>
-              <span className="text-[#2E9E6F] font-semibold">تحكيم إشرافي معتمد</span>
+              <span className="text-[#2E9E6F] font-semibold">مراجعة وتقييم تربوي</span>
             </div>
           </div>
 
