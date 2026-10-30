@@ -90,7 +90,7 @@ async function main() {
       activeToken = data.token;
 
       // Verify user exists in storage
-      const user = db.findUserById(createdUserId);
+      const user = await db.findUserById(createdUserId);
       if (!user) throw new Error('User not found in database store immediately after creation');
 
       return `User ID: ${user.id}, Email: ${user.email}, Role: ${user.role_id}, PasswordHash: ${user.password_hash.substring(0, 15)}...`;
@@ -173,7 +173,7 @@ async function main() {
     // TEST 4: Activity Logging Persistence (activity_logs)
     // -------------------------------------------------------------------------
     await runTest('PERSIST-04', 'تسجيل حدث جديد في سجل النشاط واسترجاعه', async () => {
-      const userLogs = db.getActivityLogs(createdUserId, 10);
+      const userLogs = await db.getActivityLogs(createdUserId, 10);
       if (userLogs.length === 0) {
         throw new Error('No activity logs found for user');
       }
@@ -187,7 +187,7 @@ async function main() {
     // -------------------------------------------------------------------------
     await runTest('PERSIST-05', 'تعطيل المستخدم والتأكد من منعه من الدخول', async () => {
       // Deactivate user
-      const deactivated = db.setUserActive(createdUserId, false);
+      const deactivated = await db.setUserActive(createdUserId, false);
       if (!deactivated) throw new Error('Failed to deactivate user in database');
 
       // Attempt authenticated request with token
@@ -218,7 +218,7 @@ async function main() {
       }
 
       // Reactivate user for subsequent tests
-      db.setUserActive(createdUserId, true);
+      await db.setUserActive(createdUserId, true);
       return `Deactivated account correctly blocked on /me (401 USER_INACTIVE_OR_NOT_FOUND) and login (403 ACCOUNT_SUSPENDED). Reactivated for next tests.`;
     });
 
@@ -281,12 +281,12 @@ async function main() {
       baseUrl = fresh.baseUrl;
 
       // Verify the user and profile are still intact in storage
-      const existingUser = db.findUserByEmail(testEmail);
+      const existingUser = await db.findUserByEmail(testEmail);
       if (!existingUser) {
         throw new Error('User data disappeared after server instance restart!');
       }
 
-      const existingProfile = db.getProfileByUserId(existingUser.id);
+      const existingProfile = await db.getProfileByUserId(existingUser.id);
       if (!existingProfile || existingProfile.district !== 'محافظة حولي') {
         throw new Error('User profile data modified or missing after restart');
       }

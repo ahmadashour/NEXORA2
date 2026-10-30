@@ -15,6 +15,7 @@
     "test:persistence": "tsx test/persistence_verification.ts",
     "test:remediation": "tsx test/remediation_verification.ts",
     "test:sprint": "tsx test/final_remediation_suite.ts",
+    "test:phase32": "tsx test/phase3_2_persistence.test.ts",
     "db:migrate": "tsx db/migrate.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

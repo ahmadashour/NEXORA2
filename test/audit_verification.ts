@@ -115,7 +115,7 @@ async function runComprehensiveAudit() {
       if (res.status !== 201 || !data.user?.id) {
         throw new Error(`Failed to create test user: ${res.status}`);
       }
-      const verified = db.findUserByEmail(email);
+      const verified = await db.findUserByEmail(email);
       if (!verified) throw new Error('User not found in storage immediately after creation');
 
       return {
@@ -125,9 +125,9 @@ async function runComprehensiveAudit() {
 
     await audit('DB-03', 'Database', 'Safe Disconnect & Resilient Error Handling', async () => {
       // Test querying a non-existent user or malformed ID does not crash server
-      const missingUser = db.findUserById('non_existent_id_9999');
+      const missingUser = await db.findUserById('non_existent_id_9999');
       if (missingUser !== null) throw new Error('Expected null for missing user ID');
-      const missingProfile = db.getProfileByUserId('non_existent_id_9999');
+      const missingProfile = await db.getProfileByUserId('non_existent_id_9999');
       if (missingProfile !== null) throw new Error('Expected null for missing profile');
 
       return {

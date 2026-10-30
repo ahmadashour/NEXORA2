@@ -114,6 +114,19 @@ export function createExpressApp(): Express {
       return;
     }
 
+    // Handle duplicate email unique constraint violations with explicit 409 Conflict
+    if (
+      message.includes('EMAIL_ALREADY_EXISTS') ||
+      (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 409)
+    ) {
+      res.status(409).json({
+        success: false,
+        error: 'EMAIL_ALREADY_EXISTS',
+        message: 'البريد الإلكتروني مسجل مسبقاً في منصة NEXORA. يرجى تسجيل الدخول أو استعادة كلمة المرور.',
+      });
+      return;
+    }
+
     console.error('[SERVER ERROR]', message);
 
     res.status(500).json({

@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import { db, DatabaseUnavailableError } from '../db';
+import { db, DatabaseUnavailableError, EmailAlreadyExistsError } from '../db';
 import { authMiddleware, AuthRequest, generateToken } from '../middleware/auth';
 import { validateLogin, validateRegister } from '../middleware/validator';
 import { createRateLimiter } from '../middleware/rateLimiter';
@@ -13,14 +13,15 @@ router.use(authLimiter);
 
 /**
  * POST /api/v1/auth/register
- * Registers a new user, hashes password with bcrypt, assigns role, and returns JWT.
+ * Registers a new user atomically inside a PostgreSQL Transaction.
+ * Generates JWT only after database COMMIT succeeds.
  */
 router.post('/register', validateRegister, async (req: AuthRequest, res: Response) => {
   try {
     const { email, password, fullName, role: requestedRole, phone, school, district } = req.body;
 
     // Check if user already exists
-    const existingUser = db.findUserByEmail(email);
+    const existingUser = await db.findUserByEmail(email);
     if (existingUser) {
       res.status(409).json({
         success: false,
@@ -31,31 +32,33 @@ router.post('/register', validateRegister, async (req: AuthRequest, res: Respons
     }
 
     // Resolve Role
-    const roleRecord = db.getRoleByCode(requestedRole) || db.getRoleByCode('TEACH')!;
+    const roleRecord = (await db.getRoleByCode(requestedRole)) || (await db.getRoleByCode('TEACH'))!;
     
     // Hash password securely with bcrypt (10 salt rounds)
     const password_hash = await bcrypt.hash(password, 10);
 
-    // Create user and profile
+    // Create user and profile atomically in a single transaction
     const userId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-    const newUser = db.createUser({
-      id: userId,
-      email,
-      password_hash,
-      role_id: roleRecord.id,
-    });
+    const profileId = `prf_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
-    db.createProfile({
-      id: `prf_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-      user_id: newUser.id,
-      full_name: fullName,
-      phone,
-      school_or_org: school,
-      district,
-    });
+    const { user: newUser } = await db.createUserWithProfile(
+      {
+        id: userId,
+        email,
+        password_hash,
+        role_id: roleRecord.id,
+      },
+      {
+        id: profileId,
+        full_name: fullName,
+        phone,
+        school_or_org: school,
+        district,
+      }
+    );
 
     // Log Activity
-    db.logActivity({
+    await db.logActivity({
       user_id: newUser.id,
       action: 'USER_REGISTERED',
       entity_type: 'user',
@@ -65,9 +68,9 @@ router.post('/register', validateRegister, async (req: AuthRequest, res: Respons
       user_agent: req.headers['user-agent'],
     });
 
-    const sanitized = db.getSanitizedUser(newUser.id)!;
+    const sanitized = (await db.getSanitizedUser(newUser.id))!;
     const token = generateToken(sanitized);
-    const permissions = db.getRolePermissions(roleRecord.id);
+    const permissions = await db.getRolePermissions(roleRecord.id);
 
     res.status(201).json({
       success: true,
@@ -77,6 +80,14 @@ router.post('/register', validateRegister, async (req: AuthRequest, res: Respons
       permissions: permissions.map(p => p.code),
     });
   } catch (err: unknown) {
+    if (err instanceof EmailAlreadyExistsError || (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 409)) {
+      res.status(409).json({
+        success: false,
+        error: 'EMAIL_ALREADY_EXISTS',
+        message: 'البريد الإلكتروني مسجل مسبقاً في منصة NEXORA. يرجى تسجيل الدخول أو استعادة كلمة المرور.',
+      });
+      return;
+    }
     if (err instanceof DatabaseUnavailableError || (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 503)) {
       res.status(503).json({
         success: false,
@@ -97,15 +108,15 @@ router.post('/register', validateRegister, async (req: AuthRequest, res: Respons
 
 /**
  * POST /api/v1/auth/login
- * Validates credentials, verifies bcrypt hash, updates last login timestamp, returns JWT.
+ * Validates credentials against PostgreSQL, verifies bcrypt hash, updates last login, returns JWT.
  */
 router.post('/login', validateLogin, async (req: AuthRequest, res: Response) => {
   try {
     const { email, password } = req.body;
 
-    const user = db.findUserByEmail(email);
+    const user = await db.findUserByEmail(email);
     if (!user) {
-      db.logActivity({
+      await db.logActivity({
         user_id: null,
         action: 'LOGIN_FAILED_UNKNOWN_EMAIL',
         details: { attemptedEmail: email },
@@ -133,7 +144,7 @@ router.post('/login', validateLogin, async (req: AuthRequest, res: Response) => 
     // Compare bcrypt password
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
-      db.logActivity({
+      await db.logActivity({
         user_id: user.id,
         action: 'LOGIN_FAILED_BAD_PASSWORD',
         details: { email },
@@ -150,8 +161,8 @@ router.post('/login', validateLogin, async (req: AuthRequest, res: Response) => 
     }
 
     // Successful login: update last login & log
-    db.updateUserLastLogin(user.id);
-    db.logActivity({
+    await db.updateUserLastLogin(user.id);
+    await db.logActivity({
       user_id: user.id,
       action: 'USER_LOGIN_SUCCESS',
       entity_type: 'user',
@@ -161,10 +172,10 @@ router.post('/login', validateLogin, async (req: AuthRequest, res: Response) => 
       user_agent: req.headers['user-agent'],
     });
 
-    const sanitized = db.getSanitizedUser(user.id)!;
+    const sanitized = (await db.getSanitizedUser(user.id))!;
     const token = generateToken(sanitized);
-    const permissions = db.getRolePermissions(user.role_id);
-    const profile = db.getProfileByUserId(user.id);
+    const permissions = await db.getRolePermissions(user.role_id);
+    const profile = await db.getProfileByUserId(user.id);
 
     res.status(200).json({
       success: true,
@@ -197,67 +208,99 @@ router.post('/login', validateLogin, async (req: AuthRequest, res: Response) => 
 
 /**
  * GET /api/v1/auth/me
- * Returns profile and permissions of authenticated user.
+ * Returns profile and permissions of authenticated user directly from PostgreSQL.
  */
-router.get('/me', authMiddleware, (req: AuthRequest, res: Response) => {
-  const user = req.user!;
-  const profile = db.getProfileByUserId(user.id);
-  const permissions = db.getRolePermissions(user.role_id);
+router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const profile = await db.getProfileByUserId(user.id);
+    const permissions = await db.getRolePermissions(user.role_id);
 
-  res.status(200).json({
-    success: true,
-    user: {
-      ...user,
-      profile,
-    },
-    permissions: permissions.map(p => p.code),
-  });
+    res.status(200).json({
+      success: true,
+      user: {
+        ...user,
+        profile,
+      },
+      permissions: permissions.map(p => p.code),
+    });
+  } catch (err: unknown) {
+    if (err instanceof DatabaseUnavailableError || (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 503)) {
+      res.status(503).json({
+        success: false,
+        error: 'DATABASE_UNAVAILABLE',
+        message: 'قاعدة بيانات PostgreSQL الدائمة غير متوفرة أو غير متصلة في بيئة الإنتاج',
+      });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      error: 'SERVER_ERROR',
+      message: 'تعذر استرجاع بيانات الحساب',
+    });
+  }
 });
 
 /**
  * POST /api/v1/auth/logout
- * Acknowledges user logout and records activity.
+ * Acknowledges user logout and records persistent token revocation.
  */
-router.post('/logout', authMiddleware, (req: AuthRequest, res: Response) => {
-  const user = req.user!;
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1];
-    db.revokeToken(token);
-  }
+router.post('/logout', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const user = req.user!;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      await db.revokeToken(token);
+    }
 
-  // Also revoke unique JTI token identifier
-  if (req.tokenClaims?.jti) {
-    db.revokeToken(req.tokenClaims.jti);
-  }
+    // Also revoke unique JTI token identifier in PostgreSQL
+    if (req.tokenClaims?.jti) {
+      await db.revokeToken(req.tokenClaims.jti, user.id);
+    }
 
-  // Clear session cookie if client utilized HttpOnly cookie auth
-  if (req.cookies?.nexora_token) {
-    res.clearCookie('nexora_token', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
+    // Clear session cookie if client utilized HttpOnly cookie auth
+    if (req.cookies?.nexora_token) {
+      res.clearCookie('nexora_token', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+      });
+    }
+
+    await db.logActivity({
+      user_id: user.id,
+      action: 'USER_LOGOUT',
+      details: { email: user.email },
+      ip_address: req.ip,
+      user_agent: req.headers['user-agent'],
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'تم تسجيل الخروج من منظومة NEXORA بنجاح وإبطال جلسة الرمز',
+    });
+  } catch (err: unknown) {
+    if (err instanceof DatabaseUnavailableError || (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 503)) {
+      res.status(503).json({
+        success: false,
+        error: 'DATABASE_UNAVAILABLE',
+        message: 'قاعدة بيانات PostgreSQL الدائمة غير متوفرة أو غير متصلة في بيئة الإنتاج',
+      });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      error: 'LOGOUT_ERROR',
+      message: 'حدث خطأ أثناء تسجيل الخروج',
     });
   }
-
-  db.logActivity({
-    user_id: user.id,
-    action: 'USER_LOGOUT',
-    details: { email: user.email },
-    ip_address: req.ip,
-    user_agent: req.headers['user-agent'],
-  });
-
-  res.status(200).json({
-    success: true,
-    message: 'تم تسجيل الخروج من منظومة NEXORA بنجاح وإبطال جلسة الرمز',
-  });
 });
 
 /**
  * POST /api/v1/auth/change-password
- * Updates the user's password securely after verifying their current password
+ * Updates the user's password securely in PostgreSQL after verifying their current password
  */
 router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
@@ -282,7 +325,7 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
       return;
     }
 
-    const fullUser = db.findUserById(user.id);
+    const fullUser = await db.findUserById(user.id);
     if (!fullUser) {
       res.status(404).json({
         success: false,
@@ -294,7 +337,7 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
 
     const isMatch = await bcrypt.compare(currentPassword, fullUser.password_hash);
     if (!isMatch) {
-      db.logActivity({
+      await db.logActivity({
         user_id: user.id,
         action: 'PASSWORD_CHANGE_FAILED_WRONG_CURRENT',
         ip_address: req.ip,
@@ -310,9 +353,9 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
-    db.updateUserPassword(user.id, newHash);
+    await db.updateUserPassword(user.id, newHash);
 
-    db.logActivity({
+    await db.logActivity({
       user_id: user.id,
       action: 'PASSWORD_CHANGE_SUCCESS',
       ip_address: req.ip,

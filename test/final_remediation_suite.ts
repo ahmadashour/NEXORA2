@@ -394,13 +394,13 @@ async function executeSprintVerification() {
         }
 
         // Verify User B's profile remains untouched
-        const userBProfile = db.getProfileByUserId(userBId);
+        const userBProfile = await db.getProfileByUserId(userBId);
         if (userBProfile?.full_name !== 'المستخدم الثاني (ب)' || userBProfile?.school_or_org !== 'مدرسة الجهراء') {
           throw new Error(`CRITICAL SECURITY FAILURE: User B profile was corrupted by User A! Current name: ${userBProfile?.full_name}`);
         }
 
         // Verify User A only modified their own profile
-        const userAProfile = db.getProfileByUserId(userAId);
+        const userAProfile = await db.getProfileByUserId(userAId);
         if (userAProfile?.full_name !== 'تم الاختراق بواسطة أ') {
           throw new Error('User A self-profile was not updated');
         }

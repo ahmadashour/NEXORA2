@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { db } from '../db';
+import { db, DatabaseUnavailableError } from '../db';
 import { SanitizedUser } from '../db/types';
 
 export interface AuthRequest extends Request {
@@ -147,7 +147,7 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
       return;
     }
 
-    const user = db.getSanitizedUser(decoded.userId);
+    const user = await db.getSanitizedUser(decoded.userId);
     if (!user || !user.is_active) {
       res.status(401).json({
         success: false,
@@ -162,6 +162,14 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
     req.authMethod = authMethod;
     next();
   } catch (err: unknown) {
+    if (err instanceof DatabaseUnavailableError || (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 503)) {
+      res.status(503).json({
+        success: false,
+        error: 'DATABASE_UNAVAILABLE',
+        message: 'قاعدة بيانات PostgreSQL الدائمة غير متوفرة أو غير متصلة في بيئة الإنتاج',
+      });
+      return;
+    }
     const isExpired = err instanceof jwt.TokenExpiredError;
     res.status(401).json({
       success: false,

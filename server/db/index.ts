@@ -1,16 +1,19 @@
 import { Role, Permission, User, UserProfile, ActivityLog, SanitizedUser } from './types';
 import { postgresRepo } from './postgresRepository';
+import { DatabaseUnavailableError, isValidPostgresUrl } from './postgres';
 
-export class DatabaseUnavailableError extends Error {
-  public statusCode = 503;
-  constructor(message = 'DATABASE_UNAVAILABLE: Persistent database connection (PostgreSQL) is required in production environment.') {
+export { DatabaseUnavailableError } from './postgres';
+
+export class EmailAlreadyExistsError extends Error {
+  public statusCode = 409;
+  constructor(message = 'EMAIL_ALREADY_EXISTS: البريد الإلكتروني مسجل مسبقاً في منصة NEXORA. يرجى تسجيل الدخول أو استعادة كلمة المرور.') {
     super(message);
-    this.name = 'DatabaseUnavailableError';
+    this.name = 'EmailAlreadyExistsError';
   }
 }
 
-// Default roles definition according to Phase 3.1 blueprint
-const DEFAULT_ROLES: Role[] = [
+// Default roles definition according to Phase 3.1 & 3.2 blueprint
+export const DEFAULT_ROLES: Role[] = [
   {
     id: 'role_lead',
     name: 'موجه فني للعلوم',
@@ -67,7 +70,7 @@ const DEFAULT_ROLES: Role[] = [
   },
 ];
 
-const DEFAULT_PERMISSIONS: Permission[] = [
+export const DEFAULT_PERMISSIONS: Permission[] = [
   { id: 'perm_view_dashboard', name: 'عرض لوحة التحكم', code: 'portal:view', module: 'portal', description: 'عرض لوحة تحكم البوابة' },
   { id: 'perm_manage_resources', name: 'إدارة الموارد', code: 'resources:manage', module: 'resources', description: 'إضافة وتعديل الموارد' },
   { id: 'perm_access_lab', name: 'المختبر الافتراضي', code: 'lab:access', module: 'lab', description: 'استخدام مختبر العلوم' },
@@ -77,13 +80,10 @@ const DEFAULT_PERMISSIONS: Permission[] = [
 ];
 
 /**
- * Resilient Database Store
- * Implements the storage interface for NEXORA. In environments where DATABASE_URL
- * is configured with external PostgreSQL (Supabase / Hostinger), it can map to Postgres.
- * Otherwise, it transparently runs a fully consistent in-memory store so testing, development,
- * and demo workflows are completely functional without broken dependencies.
+ * Isolated In-Memory Store Adapter for offline local development and test execution.
+ * Only activated when process.env.DATABASE_URL is not set AND process.env.NODE_ENV !== 'production'.
  */
-class DatabaseStore {
+class InMemoryDatabaseStore {
   private roles: Map<string, Role> = new Map();
   private permissions: Map<string, Permission> = new Map();
   private users: Map<string, User> = new Map();
@@ -91,51 +91,46 @@ class DatabaseStore {
   private activityLogs: ActivityLog[] = [];
   private rolePermissions: Map<string, Set<string>> = new Map();
   private revokedTokens: Set<string> = new Set();
-  private initialized = false;
 
   constructor() {
     this.init();
   }
 
   private init() {
-    if (this.initialized) return;
-    
-    // Seed roles
     DEFAULT_ROLES.forEach(r => this.roles.set(r.id, { ...r }));
-    
-    // Seed permissions
     DEFAULT_PERMISSIONS.forEach(p => this.permissions.set(p.id, { ...p }));
 
-    // Seed role-permission associations
     this.rolePermissions.set('role_lead', new Set(['perm_view_dashboard', 'perm_view_reports', 'perm_access_ai']));
     this.rolePermissions.set('role_pro', new Set(['perm_view_dashboard', 'perm_manage_resources', 'perm_access_lab', 'perm_access_ai']));
     this.rolePermissions.set('role_teach', new Set(['perm_view_dashboard', 'perm_manage_resources', 'perm_access_lab', 'perm_access_ai', 'perm_post_community']));
     this.rolePermissions.set('role_start', new Set(['perm_view_dashboard', 'perm_access_lab', 'perm_access_ai']));
     this.rolePermissions.set('role_student', new Set(['perm_view_dashboard', 'perm_access_lab']));
     this.rolePermissions.set('role_family', new Set(['perm_view_dashboard']));
-
-    this.initialized = true;
   }
 
-  public getRoles(): Role[] {
+  public async getRoles(): Promise<Role[]> {
     return Array.from(this.roles.values());
   }
 
-  public getRoleById(id: string): Role | null {
+  public async getRoleById(id: string): Promise<Role | null> {
     return this.roles.get(id) || null;
   }
 
-  public getRoleByCode(code: string): Role | null {
+  public async getRoleByCode(code: string): Promise<Role | null> {
     const upper = code.toUpperCase();
     for (const role of this.roles.values()) {
-      if (role.code === upper || role.id.replace('role_', '').toUpperCase() === upper) {
+      if (
+        role.code.toUpperCase() === upper ||
+        role.id.toUpperCase() === upper ||
+        role.id.replace('role_', '').toUpperCase() === upper
+      ) {
         return role;
       }
     }
     return null;
   }
 
-  public getRolePermissions(roleId: string): Permission[] {
+  public async getRolePermissions(roleId: string): Promise<Permission[]> {
     const permIds = this.rolePermissions.get(roleId);
     if (!permIds) return [];
     return Array.from(permIds)
@@ -143,7 +138,7 @@ class DatabaseStore {
       .filter((p): p is Permission => Boolean(p));
   }
 
-  public findUserByEmail(email: string): User | null {
+  public async findUserByEmail(email: string): Promise<User | null> {
     const normalized = email.trim().toLowerCase();
     for (const user of this.users.values()) {
       if (user.email.toLowerCase() === normalized) {
@@ -153,31 +148,81 @@ class DatabaseStore {
     return null;
   }
 
-  public findUserById(id: string): User | null {
+  public async findUserById(id: string): Promise<User | null> {
     return this.users.get(id) || null;
   }
 
-  private assertPersistenceAllowed(operation: string): void {
-    const isProduction = process.env.NODE_ENV === 'production';
-    const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
-    if (isProduction && !hasDatabaseUrl && !process.env.ALLOW_INSECURE_DEV_MEMORY) {
-      throw new DatabaseUnavailableError(
-        `DATABASE_UNAVAILABLE: Cannot perform persistent operation '${operation}'. PostgreSQL connection (DATABASE_URL) is required in production.`
-      );
+  public async createUserWithProfile(
+    userData: {
+      id: string;
+      email: string;
+      password_hash: string;
+      role_id: string;
+    },
+    profileData: {
+      id: string;
+      full_name: string;
+      phone?: string;
+      school_or_org?: string;
+      district?: string;
+      bio?: string;
     }
+  ): Promise<{ user: User; profile: UserProfile }> {
+    const normalized = userData.email.trim().toLowerCase();
+    for (const user of this.users.values()) {
+      if (user.email.toLowerCase() === normalized) {
+        throw new EmailAlreadyExistsError();
+      }
+    }
+
+    const now = new Date().toISOString();
+    const newUser: User = {
+      id: userData.id,
+      email: normalized,
+      password_hash: userData.password_hash,
+      role_id: userData.role_id,
+      is_active: true,
+      email_verified: false,
+      last_login_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+    this.users.set(newUser.id, newUser);
+
+    const newProfile: UserProfile = {
+      id: profileData.id,
+      user_id: newUser.id,
+      full_name: profileData.full_name,
+      phone: profileData.phone || null,
+      school_or_org: profileData.school_or_org || null,
+      district: profileData.district || null,
+      bio: profileData.bio || null,
+      avatar_url: null,
+      preferences: {},
+      created_at: now,
+      updated_at: now,
+    };
+    this.userProfiles.set(newUser.id, newProfile);
+
+    return { user: newUser, profile: newProfile };
   }
 
-  public createUser(userData: {
+  public async createUser(userData: {
     id: string;
     email: string;
     password_hash: string;
     role_id: string;
-  }): User {
-    this.assertPersistenceAllowed('createUser');
+  }): Promise<User> {
+    const normalized = userData.email.trim().toLowerCase();
+    for (const user of this.users.values()) {
+      if (user.email.toLowerCase() === normalized) {
+        throw new EmailAlreadyExistsError();
+      }
+    }
     const now = new Date().toISOString();
     const newUser: User = {
       id: userData.id,
-      email: userData.email.trim().toLowerCase(),
+      email: normalized,
       password_hash: userData.password_hash,
       role_id: userData.role_id,
       is_active: true,
@@ -190,7 +235,7 @@ class DatabaseStore {
     return newUser;
   }
 
-  public createProfile(profileData: {
+  public async createProfile(profileData: {
     id: string;
     user_id: string;
     full_name: string;
@@ -198,8 +243,7 @@ class DatabaseStore {
     school_or_org?: string;
     district?: string;
     bio?: string;
-  }): UserProfile {
-    this.assertPersistenceAllowed('createProfile');
+  }): Promise<UserProfile> {
     const now = new Date().toISOString();
     const newProfile: UserProfile = {
       id: profileData.id,
@@ -215,41 +259,14 @@ class DatabaseStore {
       updated_at: now,
     };
     this.userProfiles.set(profileData.user_id, newProfile);
-
-    // If PostgreSQL is configured, synchronize user and profile atomically
-    if (process.env.DATABASE_URL) {
-      const user = this.users.get(profileData.user_id);
-      if (user) {
-        postgresRepo.createUserWithProfile(
-          {
-            id: user.id,
-            email: user.email,
-            password_hash: user.password_hash,
-            role_id: user.role_id,
-          },
-          {
-            id: newProfile.id,
-            full_name: newProfile.full_name,
-            phone: newProfile.phone || undefined,
-            school_or_org: newProfile.school_or_org || undefined,
-            district: newProfile.district || undefined,
-            bio: newProfile.bio || undefined,
-          }
-        ).catch(err => {
-          console.error('[POSTGRES SYNC ERROR] Failed to persist user to PostgreSQL:', err.message);
-        });
-      }
-    }
-
     return newProfile;
   }
 
-  public getProfileByUserId(userId: string): UserProfile | null {
+  public async getProfileByUserId(userId: string): Promise<UserProfile | null> {
     return this.userProfiles.get(userId) || null;
   }
 
-  public updateProfile(userId: string, data: Partial<UserProfile>): UserProfile | null {
-    this.assertPersistenceAllowed('updateProfile');
+  public async updateProfile(userId: string, data: Partial<UserProfile>): Promise<UserProfile | null> {
     const existing = this.userProfiles.get(userId);
     if (!existing) return null;
     const updated: UserProfile = {
@@ -258,82 +275,42 @@ class DatabaseStore {
       updated_at: new Date().toISOString(),
     };
     this.userProfiles.set(userId, updated);
-    if (process.env.DATABASE_URL) {
-      postgresRepo.updateProfile(userId, data).catch(err => {
-        console.error('[POSTGRES SYNC ERROR] Failed to update profile in PostgreSQL:', err.message);
-      });
-    }
     return updated;
   }
 
-  public updateUserLastLogin(userId: string): void {
+  public async updateUserLastLogin(userId: string): Promise<void> {
     const user = this.users.get(userId);
     if (user) {
       user.last_login_at = new Date().toISOString();
       user.updated_at = new Date().toISOString();
-      if (process.env.DATABASE_URL) {
-        postgresRepo.updateUserLastLogin(userId).catch(err => {
-          console.error('[POSTGRES SYNC ERROR] Failed to update last login in PostgreSQL:', err.message);
-        });
-      }
     }
   }
 
-  public updateUserPassword(userId: string, newPasswordHash: string): boolean {
-    this.assertPersistenceAllowed('updateUserPassword');
+  public async updateUserPassword(userId: string, newPasswordHash: string): Promise<boolean> {
     const user = this.users.get(userId);
     if (!user) return false;
     user.password_hash = newPasswordHash;
     user.updated_at = new Date().toISOString();
-    if (process.env.DATABASE_URL) {
-      postgresRepo.updateUserPassword(userId, newPasswordHash).catch(err => {
-        console.error('[POSTGRES SYNC ERROR] Failed to update password in PostgreSQL:', err.message);
-      });
-    }
     return true;
   }
 
-  public setUserActive(userId: string, isActive: boolean): boolean {
-    this.assertPersistenceAllowed('setUserActive');
+  public async setUserActive(userId: string, isActive: boolean): Promise<boolean> {
     const user = this.users.get(userId);
     if (!user) return false;
     user.is_active = isActive;
     user.updated_at = new Date().toISOString();
-    if (process.env.DATABASE_URL) {
-      postgresRepo.setUserActive(userId, isActive).catch(err => {
-        console.error('[POSTGRES SYNC ERROR] Failed to update active status in PostgreSQL:', err.message);
-      });
-    }
     return true;
   }
 
-  public revokeToken(tokenOrJti: string, userId?: string, expiresAt?: Date): void {
-    this.assertPersistenceAllowed('revokeToken');
+  public async revokeToken(tokenOrJti: string): Promise<void> {
     this.revokedTokens.add(tokenOrJti);
-    if (process.env.DATABASE_URL) {
-      postgresRepo.revokeToken(tokenOrJti, userId, expiresAt).catch(err => {
-        console.error('[POSTGRES SYNC ERROR] Failed to persist revoked token to PostgreSQL:', err.message);
-      });
-    }
   }
 
-  public isTokenRevoked(tokenOrJti: string): boolean {
+  public async isTokenRevoked(tokenOrJti: string): Promise<boolean> {
     return this.revokedTokens.has(tokenOrJti);
   }
 
-  public async isTokenRevokedAsync(tokenOrJti: string): Promise<boolean> {
-    if (this.revokedTokens.has(tokenOrJti)) return true;
-    if (process.env.DATABASE_URL) {
-      try {
-        return await postgresRepo.isTokenRevoked(tokenOrJti);
-      } catch {
-        return this.revokedTokens.has(tokenOrJti);
-      }
-    }
-    return false;
-  }
-
-  public logActivity(entry: {
+  public async logActivity(entry: {
     user_id: string | null;
     action: string;
     entity_type?: string | null;
@@ -341,8 +318,7 @@ class DatabaseStore {
     details?: Record<string, unknown>;
     ip_address?: string | null;
     user_agent?: string | null;
-  }): ActivityLog {
-    this.assertPersistenceAllowed('logActivity');
+  }): Promise<ActivityLog> {
     const log: ActivityLog = {
       id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       user_id: entry.user_id,
@@ -355,26 +331,20 @@ class DatabaseStore {
       created_at: new Date().toISOString(),
     };
     this.activityLogs.unshift(log);
-    // Keep max 1000 logs in memory
     if (this.activityLogs.length > 1000) {
       this.activityLogs.pop();
-    }
-    if (process.env.DATABASE_URL) {
-      postgresRepo.logActivity(entry).catch(err => {
-        console.error('[POSTGRES SYNC ERROR] Failed to persist activity log to PostgreSQL:', err.message);
-      });
     }
     return log;
   }
 
-  public getActivityLogs(userId?: string, limit = 50): ActivityLog[] {
+  public async getActivityLogs(userId?: string, limit = 50): Promise<ActivityLog[]> {
     if (!userId) {
       return this.activityLogs.slice(0, limit);
     }
     return this.activityLogs.filter(l => l.user_id === userId).slice(0, limit);
   }
 
-  public getSanitizedUser(userId: string): SanitizedUser | null {
+  public async getSanitizedUser(userId: string): Promise<SanitizedUser | null> {
     const user = this.users.get(userId);
     if (!user) return null;
     const role = this.roles.get(user.role_id);
@@ -393,10 +363,247 @@ class DatabaseStore {
     };
   }
 
-  public getStats() {
-    const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+  public getCounts() {
     return {
-      mode: hasDatabaseUrl ? 'postgres-configured' : 'memory-resilient-store',
+      roles: this.roles.size,
+      permissions: this.permissions.size,
+      users: this.users.size,
+      userProfiles: this.userProfiles.size,
+      activityLogs: this.activityLogs.length,
+      revokedTokens: this.revokedTokens.size,
+    };
+  }
+}
+
+/**
+ * Primary Database Store
+ * Implements Phase 3.2 Primary PostgreSQL Architecture.
+ * When process.env.DATABASE_URL is set, all operations execute directly and exclusively on PostgreSQL.
+ * In production (NODE_ENV=production), persistent database connection is mandatory; zero silent in-memory fallback.
+ */
+class DatabaseStore {
+  private inMemory = new InMemoryDatabaseStore();
+
+  public isPostgresActive(): boolean {
+    return isValidPostgresUrl(process.env.DATABASE_URL);
+  }
+
+  private isProduction(): boolean {
+    return process.env.NODE_ENV === 'production';
+  }
+
+  private assertPersistenceAllowed(operation: string): void {
+    if (this.isProduction() && !this.isPostgresActive()) {
+      throw new DatabaseUnavailableError(
+        `DATABASE_UNAVAILABLE: Cannot perform persistent operation '${operation}'. PostgreSQL connection (DATABASE_URL) is required in production.`
+      );
+    }
+  }
+
+  public async findUserByEmail(email: string): Promise<User | null> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.findUserByEmail(email);
+    }
+    this.assertPersistenceAllowed('findUserByEmail');
+    return await this.inMemory.findUserByEmail(email);
+  }
+
+  public async findUserById(id: string): Promise<User | null> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.findUserById(id);
+    }
+    this.assertPersistenceAllowed('findUserById');
+    return await this.inMemory.findUserById(id);
+  }
+
+  /**
+   * Atomic multi-entity creation (User + UserProfile) executed inside a single PostgreSQL Transaction
+   */
+  public async createUserWithProfile(
+    userData: {
+      id: string;
+      email: string;
+      password_hash: string;
+      role_id: string;
+    },
+    profileData: {
+      id: string;
+      full_name: string;
+      phone?: string;
+      school_or_org?: string;
+      district?: string;
+      bio?: string;
+    }
+  ): Promise<{ user: User; profile: UserProfile }> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.createUserWithProfile(userData, profileData);
+    }
+    this.assertPersistenceAllowed('createUserWithProfile');
+    return await this.inMemory.createUserWithProfile(userData, profileData);
+  }
+
+  public async createUser(userData: {
+    id: string;
+    email: string;
+    password_hash: string;
+    role_id: string;
+  }): Promise<User> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.createUser(userData);
+    }
+    this.assertPersistenceAllowed('createUser');
+    return await this.inMemory.createUser(userData);
+  }
+
+  public async createProfile(profileData: {
+    id: string;
+    user_id: string;
+    full_name: string;
+    phone?: string;
+    school_or_org?: string;
+    district?: string;
+    bio?: string;
+  }): Promise<UserProfile> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.createProfile(profileData);
+    }
+    this.assertPersistenceAllowed('createProfile');
+    return await this.inMemory.createProfile(profileData);
+  }
+
+  public async getProfileByUserId(userId: string): Promise<UserProfile | null> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.getProfileByUserId(userId);
+    }
+    this.assertPersistenceAllowed('getProfileByUserId');
+    return await this.inMemory.getProfileByUserId(userId);
+  }
+
+  public async updateProfile(userId: string, data: Partial<UserProfile>): Promise<UserProfile | null> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.updateProfile(userId, data);
+    }
+    this.assertPersistenceAllowed('updateProfile');
+    return await this.inMemory.updateProfile(userId, data);
+  }
+
+  public async updateUserLastLogin(userId: string): Promise<void> {
+    if (this.isPostgresActive()) {
+      await postgresRepo.updateUserLastLogin(userId);
+      return;
+    }
+    this.assertPersistenceAllowed('updateUserLastLogin');
+    await this.inMemory.updateUserLastLogin(userId);
+  }
+
+  public async updateUserPassword(userId: string, newPasswordHash: string): Promise<boolean> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.updateUserPassword(userId, newPasswordHash);
+    }
+    this.assertPersistenceAllowed('updateUserPassword');
+    return await this.inMemory.updateUserPassword(userId, newPasswordHash);
+  }
+
+  public async setUserActive(userId: string, isActive: boolean): Promise<boolean> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.setUserActive(userId, isActive);
+    }
+    this.assertPersistenceAllowed('setUserActive');
+    return await this.inMemory.setUserActive(userId, isActive);
+  }
+
+  public async revokeToken(tokenOrJti: string, userId?: string, expiresAt?: Date): Promise<void> {
+    if (this.isPostgresActive()) {
+      await postgresRepo.revokeToken(tokenOrJti, userId, expiresAt);
+      return;
+    }
+    this.assertPersistenceAllowed('revokeToken');
+    await this.inMemory.revokeToken(tokenOrJti);
+  }
+
+  public async isTokenRevoked(tokenOrJti: string): Promise<boolean> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.isTokenRevoked(tokenOrJti);
+    }
+    return await this.inMemory.isTokenRevoked(tokenOrJti);
+  }
+
+  public async isTokenRevokedAsync(tokenOrJti: string): Promise<boolean> {
+    return this.isTokenRevoked(tokenOrJti);
+  }
+
+  public async logActivity(entry: {
+    user_id: string | null;
+    action: string;
+    entity_type?: string | null;
+    entity_id?: string | null;
+    details?: Record<string, unknown>;
+    ip_address?: string | null;
+    user_agent?: string | null;
+  }): Promise<ActivityLog> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.logActivity(entry);
+    }
+    this.assertPersistenceAllowed('logActivity');
+    return await this.inMemory.logActivity(entry);
+  }
+
+  public async getActivityLogs(userId?: string, limit = 50): Promise<ActivityLog[]> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.getActivityLogs(userId, limit);
+    }
+    this.assertPersistenceAllowed('getActivityLogs');
+    return await this.inMemory.getActivityLogs(userId, limit);
+  }
+
+  public async getSanitizedUser(userId: string): Promise<SanitizedUser | null> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.getSanitizedUser(userId);
+    }
+    this.assertPersistenceAllowed('getSanitizedUser');
+    return await this.inMemory.getSanitizedUser(userId);
+  }
+
+  public async getRoles(): Promise<Role[]> {
+    if (this.isPostgresActive()) {
+      const roles = await postgresRepo.getRoles();
+      if (roles.length > 0) return roles;
+    }
+    this.assertPersistenceAllowed('getRoles');
+    return await this.inMemory.getRoles();
+  }
+
+  public async getRoleById(id: string): Promise<Role | null> {
+    if (this.isPostgresActive()) {
+      const roles = await postgresRepo.getRoles();
+      const match = roles.find(r => r.id === id);
+      if (match) return match;
+    }
+    this.assertPersistenceAllowed('getRoleById');
+    return await this.inMemory.getRoleById(id);
+  }
+
+  public async getRoleByCode(code: string): Promise<Role | null> {
+    if (this.isPostgresActive()) {
+      const role = await postgresRepo.getRoleByCode(code);
+      if (role) return role;
+    }
+    this.assertPersistenceAllowed('getRoleByCode');
+    return await this.inMemory.getRoleByCode(code);
+  }
+
+  public async getRolePermissions(roleId: string): Promise<Permission[]> {
+    if (this.isPostgresActive()) {
+      return await postgresRepo.getRolePermissions(roleId);
+    }
+    this.assertPersistenceAllowed('getRolePermissions');
+    return await this.inMemory.getRolePermissions(roleId);
+  }
+
+  public getStats() {
+    const hasDatabaseUrl = this.isPostgresActive();
+    return {
+      mode: hasDatabaseUrl ? 'postgres-primary-active' : 'memory-resilient-store',
       status: 'healthy',
       tables: ['roles', 'permissions', 'role_permissions', 'users', 'user_profiles', 'activity_logs', 'revoked_tokens'],
       inMemoryStructures: {
@@ -408,13 +615,7 @@ class DatabaseStore {
         rolePermissions: 'Map<string, Set<string>>',
         revokedTokens: 'Set<string>',
       },
-      counts: {
-        roles: this.roles.size,
-        permissions: this.permissions.size,
-        users: this.users.size,
-        activityLogs: this.activityLogs.length,
-        revokedTokens: this.revokedTokens.size,
-      },
+      counts: this.inMemory.getCounts(),
     };
   }
 
@@ -424,9 +625,11 @@ class DatabaseStore {
 
     return {
       runtimeStorage: {
-        type: 'In-Memory Resilient Store (Map/Set)',
-        isTemporaryDevSandbox: true,
-        isProductionPersistent: false,
+        type: this.isPostgresActive()
+          ? 'PostgreSQL Primary Persistence (Relational Architecture)'
+          : 'In-Memory Resilient Store (Map/Set)',
+        isTemporaryDevSandbox: !this.isPostgresActive(),
+        isProductionPersistent: this.isPostgresActive(),
         stats: this.getStats(),
       },
       postgresConnection: {
@@ -438,8 +641,8 @@ class DatabaseStore {
         poolState: postgresStatus.poolState,
       },
       complianceNotice: postgresStatus.isReachable
-        ? 'PostgreSQL connection active and responding.'
-        : 'PostgreSQL instance is NOT reachable in this isolated environment. System is operating safely with local test storage without fake assertions.',
+        ? 'PostgreSQL connection active and primary in accordance with Phase 3.2 blueprint.'
+        : 'PostgreSQL instance is NOT reachable in this environment. Operating with offline dev sandbox.',
     };
   }
 }

@@ -49,35 +49,100 @@ export class PostgresRepository {
       bio?: string;
     }
   ): Promise<{ user: User; profile: UserProfile }> {
-    return withTransaction(async (client) => {
-      // 1. Insert User
-      const userRes = await client.query<User>(
+    try {
+      return await withTransaction(async (client) => {
+        // 1. Insert User
+        const userRes = await client.query<User>(
+          `INSERT INTO users (id, email, password_hash, role_id, is_active, email_verified, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, TRUE, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           RETURNING *`,
+          [userData.id, userData.email.trim().toLowerCase(), userData.password_hash, userData.role_id]
+        );
+        const user = userRes.rows[0];
+
+        // 2. Insert User Profile
+        const profileRes = await client.query<UserProfile>(
+          `INSERT INTO user_profiles (id, user_id, full_name, phone, school_or_org, district, bio, preferences, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, '{}'::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           RETURNING *`,
+          [
+            profileData.id,
+            user.id,
+            profileData.full_name,
+            profileData.phone || null,
+            profileData.school_or_org || null,
+            profileData.district || null,
+            profileData.bio || null,
+          ]
+        );
+        const profile = profileRes.rows[0];
+
+        return { user, profile };
+      });
+    } catch (err: unknown) {
+      if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === '23505') {
+        const dupError = new Error('EMAIL_ALREADY_EXISTS: البريد الإلكتروني مسجل مسبقاً في قاعدة بيانات NEXORA');
+        (dupError as { statusCode?: number }).statusCode = 409;
+        throw dupError;
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Creates a user in the users table
+   */
+  public async createUser(userData: {
+    id: string;
+    email: string;
+    password_hash: string;
+    role_id: string;
+  }): Promise<User> {
+    try {
+      const res = await query<User>(
         `INSERT INTO users (id, email, password_hash, role_id, is_active, email_verified, created_at, updated_at)
          VALUES ($1, $2, $3, $4, TRUE, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          RETURNING *`,
         [userData.id, userData.email.trim().toLowerCase(), userData.password_hash, userData.role_id]
       );
-      const user = userRes.rows[0];
+      return res.rows[0];
+    } catch (err: unknown) {
+      if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === '23505') {
+        const dupError = new Error('EMAIL_ALREADY_EXISTS: البريد الإلكتروني مسجل مسبقاً في قاعدة بيانات NEXORA');
+        (dupError as { statusCode?: number }).statusCode = 409;
+        throw dupError;
+      }
+      throw err;
+    }
+  }
 
-      // 2. Insert User Profile
-      const profileRes = await client.query<UserProfile>(
-        `INSERT INTO user_profiles (id, user_id, full_name, phone, school_or_org, district, bio, preferences, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, '{}'::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-         RETURNING *`,
-        [
-          profileData.id,
-          user.id,
-          profileData.full_name,
-          profileData.phone || null,
-          profileData.school_or_org || null,
-          profileData.district || null,
-          profileData.bio || null,
-        ]
-      );
-      const profile = profileRes.rows[0];
-
-      return { user, profile };
-    });
+  /**
+   * Creates a profile in the user_profiles table
+   */
+  public async createProfile(profileData: {
+    id: string;
+    user_id: string;
+    full_name: string;
+    phone?: string;
+    school_or_org?: string;
+    district?: string;
+    bio?: string;
+  }): Promise<UserProfile> {
+    const res = await query<UserProfile>(
+      `INSERT INTO user_profiles (id, user_id, full_name, phone, school_or_org, district, bio, preferences, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, '{}'::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       RETURNING *`,
+      [
+        profileData.id,
+        profileData.user_id,
+        profileData.full_name,
+        profileData.phone || null,
+        profileData.school_or_org || null,
+        profileData.district || null,
+        profileData.bio || null,
+      ]
+    );
+    return res.rows[0];
   }
 
   /**
@@ -290,7 +355,11 @@ export class PostgresRepository {
    */
   public async getRoleByCode(code: string): Promise<Role | null> {
     const res = await query<Role>(
-      'SELECT * FROM roles WHERE UPPER(code) = UPPER($1) LIMIT 1',
+      `SELECT * FROM roles 
+       WHERE UPPER(code) = UPPER($1) 
+          OR UPPER(id) = UPPER($1) 
+          OR UPPER(REPLACE(id, 'role_', '')) = UPPER($1) 
+       LIMIT 1`,
       [code.trim()]
     );
     return res.rows[0] || null;
