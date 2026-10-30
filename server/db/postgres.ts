@@ -1,4 +1,5 @@
 import pg from 'pg';
+import fs from 'fs';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -15,6 +16,7 @@ let pool: pg.Pool | null = null;
 /**
  * Configure and initialize PostgreSQL Connection Pool
  * Optimized for Supabase Supavisor Transaction Pooler (Port 6543) and Hostinger hosting.
+ * Supports TLS with custom CA certificate verification.
  */
 export function getPostgresPool(): pg.Pool | null {
   const connectionString = process.env.DATABASE_URL;
@@ -28,17 +30,33 @@ export function getPostgresPool(): pg.Pool | null {
 
   // Detect Supavisor Transaction Pooler (port 6543 or pooler hostname)
   const isTransactionPooler = connectionString.includes(':6543') || connectionString.includes('pooler.supabase.com');
-  
-  // SSL Configuration
-  // By default in Node.js, standard CA certificates validate Let's Encrypt / DigiCert.
-  // When connecting to Supavisor, rejectUnauthorized should be false only if custom CA is not provided in env.
-  const rejectUnauthorized = process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true';
+
+  // SSL / TLS Configuration
+  let sslConfig: pg.ConnectionConfig['ssl'] = false;
+  if (process.env.NODE_ENV === 'production' || connectionString.includes('supabase.com') || process.env.DB_SSL === 'true') {
+    let caContent: string | undefined = process.env.DB_SSL_CA;
+    if (!caContent && process.env.DB_SSL_CA_PATH && fs.existsSync(process.env.DB_SSL_CA_PATH)) {
+      try {
+        caContent = fs.readFileSync(process.env.DB_SSL_CA_PATH, 'utf-8');
+      } catch (e) {
+        console.warn('[POSTGRES WARNING] Failed to read DB_SSL_CA_PATH:', e);
+      }
+    }
+
+    if (caContent) {
+      sslConfig = {
+        ca: caContent,
+        rejectUnauthorized: true,
+      };
+    } else {
+      const rejectUnauthorized = process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true';
+      sslConfig = { rejectUnauthorized };
+    }
+  }
 
   pool = new Pool({
     connectionString,
-    ssl: process.env.NODE_ENV === 'production' || connectionString.includes('supabase.com')
-      ? { rejectUnauthorized }
-      : false,
+    ssl: sslConfig,
     max: Number(process.env.DB_POOL_MAX || 10), // Safe maximum for Hostinger and Supabase Free Tier
     idleTimeoutMillis: 30000,                   // 30 seconds idle timeout
     connectionTimeoutMillis: 5000,               // 5 seconds connection timeout
@@ -76,6 +94,108 @@ export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
   }
 
   return res;
+}
+
+/**
+ * Executes a callback within a managed PostgreSQL transaction (BEGIN / COMMIT / ROLLBACK)
+ */
+export async function withTransaction<T>(
+  callback: (client: pg.PoolClient) => Promise<T>
+): Promise<T> {
+  const p = getPostgresPool();
+  if (!p) {
+    throw new Error('DATABASE_URL is not configured. Cannot initiate database transaction.');
+  }
+
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await callback(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rbErr) {
+      console.error('[POSTGRES TRANSACTION ROLLBACK ERROR]', rbErr);
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export interface PostgresConnectionDiagnostic {
+  isConfigured: boolean;
+  isReachable: boolean;
+  latencyMs?: number;
+  serverVersion?: string;
+  poolState?: {
+    totalCount: number;
+    idleCount: number;
+    waitingCount: number;
+  };
+  error?: string;
+}
+
+/**
+ * Truthfully checks PostgreSQL connectivity without masking errors or creating mock success
+ */
+export async function checkPostgresConnection(): Promise<PostgresConnectionDiagnostic> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    return {
+      isConfigured: false,
+      isReachable: false,
+      error: 'DATABASE_URL is unset. Application is running with isolated local fallback.',
+    };
+  }
+
+  const p = getPostgresPool();
+  if (!p) {
+    return {
+      isConfigured: true,
+      isReachable: false,
+      error: 'Failed to create PostgreSQL connection pool.',
+    };
+  }
+
+  const start = Date.now();
+  try {
+    const res = await Promise.race([
+      p.query('SELECT 1 as ping, version() as version'),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Connection check timed out after 3000ms')), 3000)
+      ),
+    ]);
+
+    const latencyMs = Date.now() - start;
+    const versionRow = res.rows[0] as { version?: string };
+
+    return {
+      isConfigured: true,
+      isReachable: true,
+      latencyMs,
+      serverVersion: versionRow?.version,
+      poolState: {
+        totalCount: p.totalCount,
+        idleCount: p.idleCount,
+        waitingCount: p.waitingCount,
+      },
+    };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return {
+      isConfigured: true,
+      isReachable: false,
+      error: `PostgreSQL unreachable: ${errorMsg}`,
+      poolState: {
+        totalCount: p.totalCount,
+        idleCount: p.idleCount,
+        waitingCount: p.waitingCount,
+      },
+    };
+  }
 }
 
 /**

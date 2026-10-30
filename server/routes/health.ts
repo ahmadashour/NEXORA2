@@ -35,4 +35,14 @@ router.get('/', (_req: Request, res: Response) => {
   });
 });
 
+router.get('/db-diagnostics', async (_req: Request, res: Response) => {
+  const diagnostics = await db.getDiagnostics();
+  res.status(200).json({
+    success: true,
+    service: 'nexora-backend',
+    timestamp: new Date().toISOString(),
+    diagnostics,
+  });
+});
+
 export default router;

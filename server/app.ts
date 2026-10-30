@@ -25,14 +25,23 @@ export function createExpressApp(): Express {
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps, curl, server-to-server)
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin) || origin.endsWith('.run.app') || origin.endsWith('.ashouracademy.com')) {
+
+      const isAllowed =
+        allowedOrigins.includes(origin) ||
+        origin.endsWith('.ashouracademy.com') ||
+        origin === 'https://ashouracademy.com' ||
+        (process.env.NODE_ENV !== 'production' && (origin.endsWith('.run.app') || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)));
+
+      if (isAllowed) {
         return callback(null, true);
       }
-      return callback(null, true); // Dev-friendly fallback
+
+      // Explicitly reject unauthorized origins
+      return callback(new Error(`CORS_ORIGIN_BLOCKED: Origin '${origin}' is not permitted by NEXORA security policy.`));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token'],
   }));
 
   // Cookie parsing for HttpOnly cookies support
@@ -69,8 +78,8 @@ export function createExpressApp(): Express {
   // Backward compatibility alias for `/api/health`
   app.use('/api/health', healthRouter);
 
-  // 404 handler for API routes
-  app.use('/api/*', (_req: Request, res: Response) => {
+  // 404 handler for API routes (covers /api, /api/, /api/anything)
+  app.all(/^\/api(\/.*)?$/, (_req: Request, res: Response) => {
     res.status(404).json({
       success: false,
       error: 'ENDPOINT_NOT_FOUND',
@@ -81,6 +90,17 @@ export function createExpressApp(): Express {
   // Centralized Error Handler
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     const message = err instanceof Error ? err.message : 'Internal Server Error';
+
+    // Handle CORS violation with explicit 403 Forbidden
+    if (message.startsWith('CORS_ORIGIN_BLOCKED')) {
+      res.status(403).json({
+        success: false,
+        error: 'CORS_FORBIDDEN',
+        message: 'الأصل غير مسموح به عبر سياسة مشاركة الموارد (CORS)',
+      });
+      return;
+    }
+
     console.error('[SERVER ERROR]', message);
 
     res.status(500).json({

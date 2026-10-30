@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
+    "build": "vite build && esbuild server.ts --platform=node --format=esm --target=node22 --bundle --packages=external --outfile=dist/server.js",
+    "build:client": "vite build",
+    "build:server": "esbuild server.ts --platform=node --format=esm --target=node22 --bundle --packages=external --outfile=dist/server.js",
     "preview": "vite preview",
-    "start": "node server.ts",
+    "start": "node dist/server.js",
     "test:backend": "tsx test/backend.test.ts",
     "test:audit": "tsx test/audit_verification.ts",
     "test:persistence": "tsx test/persistence_verification.ts",
+    "test:remediation": "tsx test/remediation_verification.ts",
     "db:migrate": "tsx db/migrate.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

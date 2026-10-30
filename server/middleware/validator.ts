@@ -6,7 +6,10 @@ const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z
 export function sanitizeInput(value: unknown): string {
   if (typeof value !== 'string') return '';
   return value
-    .replace(/[<>]/g, '') // remove direct tag brackets
+    .replace(/\0/g, '') // remove null bytes
+    .replace(/[<>]/g, '') // strip HTML tag angle brackets
+    .replace(/javascript:/gi, '') // strip pseudo javascript: protocols
+    .replace(/data:/gi, '')
     .trim();
 }
 

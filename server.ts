@@ -4,11 +4,24 @@ import path from 'path';
 import fs from 'fs';
 import express from 'express';
 
+import { getJwtSecret } from './server/middleware/auth';
+
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 const isProduction = process.env.NODE_ENV === 'production';
 
 async function startServer() {
+  // Security guard: Validate JWT secret configuration before starting up
+  if (isProduction) {
+    try {
+      getJwtSecret();
+      console.log('[NEXORA SECURITY] Production JWT_SECRET validated successfully.');
+    } catch (secErr) {
+      console.error('[NEXORA SECURITY FATAL]', secErr instanceof Error ? secErr.message : secErr);
+      process.exit(1);
+    }
+  }
+
   const app = createExpressApp();
 
   if (!isProduction) {
@@ -31,7 +44,16 @@ async function startServer() {
 
     if (fs.existsSync(distPath)) {
       app.use(express.static(distPath));
-      app.get('*', (_req, res) => {
+      app.get('*', (req, res) => {
+        // Enforce: Never serve SPA index.html for API requests
+        if (req.path.startsWith('/api')) {
+          res.status(404).json({
+            success: false,
+            error: 'ENDPOINT_NOT_FOUND',
+            message: 'نقطة النهاية المطلوبة غير موجودة في واجهة برمجة تطبيقات NEXORA v1',
+          });
+          return;
+        }
         res.sendFile(path.resolve(distPath, 'index.html'));
       });
     } else {

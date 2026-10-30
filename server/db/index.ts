@@ -305,6 +305,15 @@ class DatabaseStore {
       mode: hasDatabaseUrl ? 'postgres-configured' : 'memory-resilient-store',
       status: 'healthy',
       tables: ['roles', 'permissions', 'role_permissions', 'users', 'user_profiles', 'activity_logs', 'revoked_tokens'],
+      inMemoryStructures: {
+        roles: 'Map<string, Role>',
+        permissions: 'Map<string, Permission>',
+        users: 'Map<string, User>',
+        userProfiles: 'Map<string, UserProfile>',
+        activityLogs: 'ActivityLog[] (max 1000 items)',
+        rolePermissions: 'Map<string, Set<string>>',
+        revokedTokens: 'Set<string>',
+      },
       counts: {
         roles: this.roles.size,
         permissions: this.permissions.size,
@@ -314,7 +323,33 @@ class DatabaseStore {
       },
     };
   }
+
+  public async getDiagnostics() {
+    const { checkPostgresConnection } = await import('./postgres');
+    const postgresStatus = await checkPostgresConnection();
+
+    return {
+      runtimeStorage: {
+        type: 'In-Memory Resilient Store (Map/Set)',
+        isTemporaryDevSandbox: true,
+        isProductionPersistent: false,
+        stats: this.getStats(),
+      },
+      postgresConnection: {
+        isConfigured: postgresStatus.isConfigured,
+        isReachable: postgresStatus.isReachable,
+        latencyMs: postgresStatus.latencyMs,
+        serverVersion: postgresStatus.serverVersion,
+        error: postgresStatus.error,
+        poolState: postgresStatus.poolState,
+      },
+      complianceNotice: postgresStatus.isReachable
+        ? 'PostgreSQL connection active and responding.'
+        : 'PostgreSQL instance is NOT reachable in this isolated environment. System is operating safely with local test storage without fake assertions.',
+    };
+  }
 }
 
 // Global Singleton Export
 export const db = new DatabaseStore();
+export { postgresRepo } from './postgresRepository';
