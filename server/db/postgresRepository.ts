@@ -234,8 +234,9 @@ export class PostgresRepository {
    * Persistently revokes a token by inserting its JTI into revoked_tokens
    */
   public async revokeToken(jti: string, userId?: string, expiresAt?: Date): Promise<void> {
+    const trimmed = (jti || '').trim();
     const defaultExpiry = expiresAt || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    const safeJti = jti.length > 255 ? crypto.createHash('sha256').update(jti).digest('hex') : jti;
+    const safeJti = trimmed.length > 255 ? crypto.createHash('sha256').update(trimmed).digest('hex') : trimmed;
     await query(
       `INSERT INTO revoked_tokens (jti, user_id, expires_at, revoked_at)
        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
@@ -248,7 +249,8 @@ export class PostgresRepository {
    * Checks if token JTI is in revoked_tokens table and not expired
    */
   public async isTokenRevoked(jti: string): Promise<boolean> {
-    const safeJti = jti.length > 255 ? crypto.createHash('sha256').update(jti).digest('hex') : jti;
+    const trimmed = (jti || '').trim();
+    const safeJti = trimmed.length > 255 ? crypto.createHash('sha256').update(trimmed).digest('hex') : trimmed;
     const res = await query(
       'SELECT 1 FROM revoked_tokens WHERE jti = $1 AND expires_at > CURRENT_TIMESTAMP LIMIT 1',
       [safeJti]

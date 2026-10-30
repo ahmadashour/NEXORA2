@@ -17,6 +17,7 @@
     "test:sprint": "tsx test/final_remediation_suite.ts",
     "test:phase32": "tsx test/phase3_2_persistence.test.ts",
     "test:phase33": "tsx test/phase3_3_postgres_integration.test.ts",
+    "test:phase331": "tsx test/phase3_3_1_reconciliation.test.ts",
     "db:migrate": "tsx db/migrate.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

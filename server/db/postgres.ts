@@ -48,7 +48,14 @@ export function getPostgresPool(): pg.Pool | null {
   const isProduction = process.env.NODE_ENV === 'production';
   const isSupabase = connectionString.includes('supabase.com');
   const isLocal = connectionString.includes('127.0.0.1') || connectionString.includes('localhost');
-  const requireSsl = !isLocal && (process.env.DB_SSL === 'true' || isProduction || isSupabase);
+
+  // Enforce TLS:
+  // - Local tests can set DB_SSL='false' when connecting to local test instances
+  // - External connections in production MUST always enforce SSL
+  // - No environment variable can bypass TLS or certificate verification on external production connections
+  const requireSsl = isProduction
+    ? !isLocal
+    : (!isLocal && (process.env.DB_SSL === 'true' || isSupabase));
 
   if (requireSsl) {
     let caContent: string | undefined = process.env.DB_SSL_CA;
@@ -66,10 +73,10 @@ export function getPostgresPool(): pg.Pool | null {
         rejectUnauthorized: true,
       };
     } else {
-      // In production: strict certificate verification (rejectUnauthorized: true) is mandatory by default.
-      // In development: can be configured via DB_SSL_REJECT_UNAUTHORIZED if using local self-signed certs.
+      // In production: strict certificate verification (rejectUnauthorized: true) is mandatory and non-negotiable.
+      // rejectUnauthorized=false is strictly prohibited in production.
       const rejectUnauthorized = isProduction
-        ? (process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false')
+        ? true
         : (process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true');
 
       sslConfig = { rejectUnauthorized };

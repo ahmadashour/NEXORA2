@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Role, Permission, User, UserProfile, ActivityLog, SanitizedUser } from './types';
 import { postgresRepo } from './postgresRepository';
 import { DatabaseUnavailableError, isValidPostgresUrl } from './postgres';
@@ -302,12 +303,19 @@ class InMemoryDatabaseStore {
     return true;
   }
 
+  private normalizeToken(tokenOrJti: string): string {
+    const trimmed = (tokenOrJti || '').trim();
+    return trimmed.length > 255
+      ? crypto.createHash('sha256').update(trimmed).digest('hex')
+      : trimmed;
+  }
+
   public async revokeToken(tokenOrJti: string): Promise<void> {
-    this.revokedTokens.add(tokenOrJti);
+    this.revokedTokens.add(this.normalizeToken(tokenOrJti));
   }
 
   public async isTokenRevoked(tokenOrJti: string): Promise<boolean> {
-    return this.revokedTokens.has(tokenOrJti);
+    return this.revokedTokens.has(this.normalizeToken(tokenOrJti));
   }
 
   public async logActivity(entry: {
@@ -394,8 +402,8 @@ class DatabaseStore {
 
   private assertPersistenceAllowed(operation: string): void {
     if (this.isProduction() && !this.isPostgresActive()) {
-      if (process.env.ALLOW_INSECURE_DEV_MEMORY === 'true' || !process.env.DATABASE_URL) {
-        console.warn(`[AI STUDIO DB] PostgreSQL not connected — using in-memory store fallback for: ${operation}`);
+      if (process.env.ALLOW_INSECURE_DEV_MEMORY === 'true') {
+        console.warn(`[AI STUDIO DB] ALLOW_INSECURE_DEV_MEMORY enabled — using in-memory store for: ${operation}`);
         return;
       }
       throw new DatabaseUnavailableError(

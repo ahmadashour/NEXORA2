@@ -19,33 +19,28 @@ export interface AuthRequest extends Request {
 
 const INSECURE_DEV_SECRET = 'nexora_secure_development_secret_key_3.1';
 
-let runtimeFallbackSecret: string | null = null;
-
 /**
  * Validates and retrieves the JWT Secret.
- * Uses environment variable if provided, or generates a secure runtime session key.
+ * Strictly enforces that production MUST provide a strong custom JWT_SECRET.
  */
 export function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
   const isProduction = process.env.NODE_ENV === 'production';
 
-  if (secret && secret.trim().length >= 32) {
-    return secret.trim();
-  }
-
-  if (secret && secret.trim().length > 0) {
-    return secret.trim();
-  }
-
   if (isProduction) {
-    if (!runtimeFallbackSecret) {
-      runtimeFallbackSecret = `nexora_runtime_production_key_${Date.now()}_9348f983a48e718b209cd4`;
-      console.warn('[NEXORA SECURITY] JWT_SECRET not set in environment — initialized runtime fallback key.');
+    if (!secret || secret.trim() === '' || secret === INSECURE_DEV_SECRET) {
+      throw new Error(
+        'FATAL_SECURITY_ERROR: JWT_SECRET must be configured with a strong secret key (min 32 chars) in production. Fallback secrets are strictly prohibited.'
+      );
     }
-    return runtimeFallbackSecret;
+    if (secret.length < 32) {
+      throw new Error(
+        'FATAL_SECURITY_ERROR: JWT_SECRET is too short for production use. Minimum 32 characters required.'
+      );
+    }
   }
 
-  return INSECURE_DEV_SECRET;
+  return secret || INSECURE_DEV_SECRET;
 }
 
 /**
