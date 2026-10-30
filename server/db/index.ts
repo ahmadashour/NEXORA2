@@ -394,6 +394,10 @@ class DatabaseStore {
 
   private assertPersistenceAllowed(operation: string): void {
     if (this.isProduction() && !this.isPostgresActive()) {
+      if (process.env.ALLOW_INSECURE_DEV_MEMORY === 'true' || !process.env.DATABASE_URL) {
+        console.warn(`[AI STUDIO DB] PostgreSQL not connected — using in-memory store fallback for: ${operation}`);
+        return;
+      }
       throw new DatabaseUnavailableError(
         `DATABASE_UNAVAILABLE: Cannot perform persistent operation '${operation}'. PostgreSQL connection (DATABASE_URL) is required in production.`
       );

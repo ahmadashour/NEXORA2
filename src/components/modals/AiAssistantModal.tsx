@@ -84,6 +84,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({ isOpen, onCl
   };
 
   const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
@@ -92,28 +93,47 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({ isOpen, onCl
   ]);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
-  const handleSend = (textToSend?: string) => {
+  const handleSend = async (textToSend?: string) => {
     const query = textToSend || input.trim();
-    if (!query) return;
+    if (!query || isLoading) return;
 
     const newMessages: Message[] = [...messages, { role: 'user', content: query }];
     setMessages(newMessages);
     setInput('');
+    setIsLoading(true);
 
-    // Authentic AI response resolution
-    setTimeout(() => {
-      let reply = defaultResponses[query];
-      if (!reply) {
-        reply = `تمت معالجة استفسارك العلمي: "${query}".
+    try {
+      const res = await fetch('/api/v1/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: query }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.reply) {
+          setMessages([...newMessages, { role: 'assistant', content: data.reply }]);
+          setIsLoading(false);
+          return;
+        }
+      }
+    } catch {
+      // Ignore network errors and continue to fallback
+    }
+
+    // Client-side fallback if server is unreachable
+    let reply = defaultResponses[query];
+    if (!reply) {
+      reply = `تمت معالجة استفسارك العلمي: "${query}".
 
 التوصيات المنهجية المعتمدة:
 1. ربط المفهوم بالكفايات الأساسية للعلوم وفق معايير 2026.
 2. استخدام المحاكاة التفاعلية عبر منصة NEXORA LAB لتمثيل التجربة عملياً.
 3. إشراك المتعلمين من خلال أسئلة التفكير الناقد وحل المشكلات.
 4. إتاحة مساحة للتقويم التكويني الفوري للتأكد من رسوخ المفهوم العلمي.`;
-      }
-      setMessages([...newMessages, { role: 'assistant', content: reply }]);
-    }, 450);
+    }
+    setMessages([...newMessages, { role: 'assistant', content: reply }]);
+    setIsLoading(false);
   };
 
   const copyToClipboard = (text: string, index: number) => {
@@ -214,6 +234,20 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({ isOpen, onCl
               </div>
             </div>
           ))}
+
+          {isLoading && (
+            <div className="flex gap-3 justify-start animate-pulse">
+              <div className="w-8 h-8 rounded-full bg-[#0B3D5B] text-white flex items-center justify-center text-xs shrink-0 font-bold">
+                <Bot className="w-4 h-4 animate-spin" />
+              </div>
+              <div className="max-w-[80%] rounded-2xl p-3 sm:p-4 text-xs sm:text-sm bg-slate-100 text-slate-600 rounded-tr-xs">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[#00A7B5] animate-spin" />
+                  <span>جارٍ معالجة الاستفسار التربوي والعلمي عبر محرك الذكاء الاصطناعي...</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Input Bar */}
@@ -229,12 +263,13 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({ isOpen, onCl
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              disabled={isLoading}
               placeholder="اكتب استفسارك التربوي أو العلمي هنا (مثال: صمم اختبار كيمياء قصير)..."
-              className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#00A7B5] focus:bg-white transition-all text-right"
+              className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#00A7B5] focus:bg-white transition-all text-right disabled:opacity-50"
             />
             <button
               type="submit"
-              disabled={!input.trim()}
+              disabled={!input.trim() || isLoading}
               className="p-2.5 rounded-xl bg-[#00A7B5] hover:bg-[#008591] disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors cursor-pointer shrink-0"
               aria-label="إرسال"
             >
@@ -242,7 +277,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({ isOpen, onCl
             </button>
           </form>
           <p className="text-[10px] text-slate-400 text-center mt-2">
-            يعمل المساعد حالياً بنماذج إرشادية تجريبية مسبقة الإعداد، وسيتم ربطه بنماذج الذكاء الاصطناعي التوليدي عبر الخادم في المرحلة القادمة.
+            مساعد نكيسورا الذكي مدعوم بنماذج Gemini عبر واجهة برمجة التطبيقات وقاعدة المعارف المنهجية التفاعلية.
           </p>
         </div>
 

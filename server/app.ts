@@ -5,6 +5,7 @@ import healthRouter from './routes/health';
 import authRouter from './routes/auth';
 import usersRouter from './routes/users';
 import portalsRouter from './routes/portals';
+import aiRouter from './routes/ai';
 
 export function createExpressApp(): Express {
   const app = express();
@@ -74,6 +75,7 @@ export function createExpressApp(): Express {
   app.use('/api/v1/auth', authRouter);
   app.use('/api/v1/users', usersRouter);
   app.use('/api/v1/portals', portalsRouter);
+  app.use('/api/v1/ai', aiRouter);
 
   // Backward compatibility alias for `/api/health`
   app.use('/api/health', healthRouter);
