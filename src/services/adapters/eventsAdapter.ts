@@ -18,8 +18,10 @@ import { formatArabicDate } from './communityAdapter';
  * guarantee availability. Concurrency and seat quotas are strictly enforced
  * atomically by the backend PostgreSQL database transaction.
  */
-export function computeSeatsLeft(capacity: number, booked: number): number {
-  return Math.max(0, (capacity || 0) - (booked || 0));
+export function computeSeatsLeft(capacity: number | null | undefined, booked: number | null | undefined): number {
+  const cap = typeof capacity === 'number' && !isNaN(capacity) && isFinite(capacity) ? Math.max(0, capacity) : 0;
+  const bkd = typeof booked === 'number' && !isNaN(booked) && isFinite(booked) ? Math.max(0, booked) : 0;
+  return Math.max(0, cap - bkd);
 }
 
 /**
@@ -65,13 +67,13 @@ export function adaptEventDetailFromBackend(dto: BackendEventDetailDTO): EventDe
     id: dto.id,
     eventDate: formatArabicDate(dto.event_date),
     eventTime: formatArabicTime(dto.event_date),
-    durationFormatted: `${dto.duration_minutes || 60} دقيقة`,
+    durationFormatted: dto.duration_minutes ? `${dto.duration_minutes} دقيقة` : '60 دقيقة',
     locationTypeFormatted: mapLocationType(dto.location_type),
-    locationAddress: dto.location_address || (dto.location_type === 'virtual' ? 'عبر منصة Teams' : 'قاعة المؤتمرات التعليمية'),
-    speakerName: dto.speaker_name || 'خبير تربوي',
-    speakerTitle: dto.speaker_title || 'أستاذ المناهج والتعليم',
-    seatsCapacity: Number(dto.seats_capacity) || 0,
-    seatsBooked: Number(dto.seats_booked) || 0,
+    locationAddress: dto.location_address || (dto.location_type === 'virtual' ? 'عبر منصة التدريب الافتراضية' : ''),
+    speakerName: dto.speaker_name || '',
+    speakerTitle: dto.speaker_title || '',
+    seatsCapacity: typeof dto.seats_capacity === 'number' && !isNaN(dto.seats_capacity) ? Math.max(0, dto.seats_capacity) : 0,
+    seatsBooked: typeof dto.seats_booked === 'number' && !isNaN(dto.seats_booked) ? Math.max(0, dto.seats_booked) : 0,
     seatsLeft,
     isFullyBooked,
     isRegisteredByMe,

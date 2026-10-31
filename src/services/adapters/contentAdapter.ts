@@ -62,11 +62,11 @@ export function adaptContentItemFromBackend(dto: BackendContentItemDTO): Unified
     date: formatArabicDate(dto.created_at),
     subject: dto.subject || 'علوم عامة',
     gradeLevel: dto.grade_level || undefined,
-    author: {
-      name: dto.author_name || 'هيئة التحرير التربوي',
+    author: dto.author_name ? {
+      name: dto.author_name,
       role: 'خبير تعليمي',
       avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=faces',
-    },
+    } : undefined,
     duration: durationText,
     readsOrViews: Number(dto.views_count) || 0,
     url: dto.video_url || undefined,
