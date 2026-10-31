@@ -3,6 +3,8 @@ import path from 'path';
 import pg from 'pg';
 import dotenv from 'dotenv';
 
+import { isLoopbackHost } from '../server/db/postgres';
+
 dotenv.config();
 
 /**
@@ -20,15 +22,18 @@ export async function runMigrations(databaseUrl?: string): Promise<{ success: bo
     };
   }
 
-  const isLocal = connString.includes('127.0.0.1') || connString.includes('localhost');
-  const useSsl = !isLocal && (process.env.DB_SSL === 'true' || process.env.NODE_ENV === 'production' || connString.includes('supabase.com'));
+  const isLocal = isLoopbackHost(connString);
+  const isProduction = process.env.NODE_ENV === 'production';
+  const useSsl = isProduction
+    ? !isLocal
+    : (!isLocal && (process.env.DB_SSL === 'true' || connString.includes('supabase.com')));
 
   const { Pool } = pg;
   const pool = new Pool({
     connectionString: connString,
     ssl: useSsl
       ? {
-          rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true',
+          rejectUnauthorized: isProduction ? true : (process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true'),
         }
       : false,
     connectionTimeoutMillis: 10000,
