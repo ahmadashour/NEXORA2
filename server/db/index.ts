@@ -652,12 +652,35 @@ class DatabaseStore {
     return await this.inMemory.getRolePermissions(roleId);
   }
 
+  /**
+   * Domain Sub-Repositories for Phase 5 P1.2
+   */
+  public get community() {
+    return postgresRepo.community;
+  }
+
+  public get library() {
+    return postgresRepo.library;
+  }
+
+  public get content() {
+    return postgresRepo.content;
+  }
+
+  public get support() {
+    return postgresRepo.support;
+  }
+
   public getStats() {
     const hasDatabaseUrl = this.isPostgresActive();
     return {
       mode: hasDatabaseUrl ? 'postgres-primary-active' : 'memory-resilient-store',
       status: this.isProduction() && !hasDatabaseUrl ? 'degraded_insecure_sandbox' : 'healthy',
-      tables: ['roles', 'permissions', 'role_permissions', 'users', 'user_profiles', 'activity_logs', 'revoked_tokens'],
+      tables: [
+        'roles', 'permissions', 'role_permissions', 'users', 'user_profiles', 'activity_logs', 'revoked_tokens',
+        'community_posts', 'community_attachments', 'community_comments', 'community_likes', 'community_bookmarks',
+        'library_resources', 'content_items', 'event_details', 'event_registrations', 'contact_inquiries'
+      ],
       inMemoryStructures: {
         roles: 'Map<string, Role>',
         permissions: 'Map<string, Permission>',
@@ -704,3 +727,7 @@ class DatabaseStore {
 // Global Singleton Export
 export const db = new DatabaseStore();
 export { postgresRepo } from './postgresRepository';
+export { communityRepo, CommunityRepository } from './repositories/communityRepository';
+export { libraryRepo, LibraryRepository } from './repositories/libraryRepository';
+export { contentRepo, ContentRepository } from './repositories/contentRepository';
+export { supportRepo, SupportRepository } from './repositories/supportRepository';

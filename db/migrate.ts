@@ -42,31 +42,45 @@ export async function runMigrations(databaseUrl?: string): Promise<{ success: bo
   const client = await pool.connect();
 
   try {
-    console.log('[MIGRATION] Connected to PostgreSQL. Reading migration file...');
-    const migrationPath = path.resolve(process.cwd(), 'db/migrations/001_core_schema.sql');
-    const sql = fs.readFileSync(migrationPath, 'utf-8');
+    console.log('[MIGRATION] Connected to PostgreSQL. Reading migration files...');
+    const migrationFiles = [
+      'db/migrations/001_core_schema.sql',
+      'db/migrations/002_community_library_content.sql',
+    ];
 
-    console.log('[MIGRATION] Applying 001_core_schema.sql...');
     await client.query('BEGIN');
-    await client.query(sql);
+    for (const file of migrationFiles) {
+      const fullPath = path.resolve(process.cwd(), file);
+      if (fs.existsSync(fullPath)) {
+        console.log(`[MIGRATION] Applying ${file}...`);
+        const sql = fs.readFileSync(fullPath, 'utf-8');
+        await client.query(sql);
+      }
+    }
     await client.query('COMMIT');
-    console.log('[MIGRATION] Schema successfully applied.');
+    console.log('[MIGRATION] All schema migrations successfully applied.');
 
-    // Verify existing tables
+    // Verify existing tables (7 Core + 10 Domain = 17 Total)
+    const expectedTables = [
+      'roles', 'permissions', 'role_permissions', 'users', 'user_profiles', 'activity_logs', 'revoked_tokens',
+      'community_posts', 'community_attachments', 'community_comments', 'community_likes', 'community_bookmarks',
+      'library_resources', 'content_items', 'event_details', 'event_registrations', 'contact_inquiries'
+    ];
+
     const res = await client.query(`
       SELECT table_name 
       FROM information_schema.tables 
       WHERE table_schema = 'public' 
-        AND table_name IN ('roles', 'permissions', 'role_permissions', 'users', 'user_profiles', 'activity_logs', 'revoked_tokens')
+        AND table_name = ANY($1)
       ORDER BY table_name;
-    `);
+    `, [expectedTables]);
 
     const tables = res.rows.map(r => r.table_name);
-    console.log(`[MIGRATION] Verified tables in database (${tables.length}/7):`, tables.join(', '));
+    console.log(`[MIGRATION] Verified tables in database (${tables.length}/${expectedTables.length}):`, tables.join(', '));
 
     return {
       success: true,
-      message: 'Schema migration applied successfully with all tables verified.',
+      message: `Schema migration applied successfully with ${tables.length} tables verified.`,
       tables,
     };
   } catch (err: unknown) {

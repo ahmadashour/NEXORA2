@@ -1,6 +1,10 @@
 import crypto from 'crypto';
 import { query, withTransaction, getPostgresPool } from './postgres';
 import { User, UserProfile, Role, Permission, ActivityLog, SanitizedUser } from './types';
+import { communityRepo } from './repositories/communityRepository';
+import { libraryRepo } from './repositories/libraryRepository';
+import { contentRepo } from './repositories/contentRepository';
+import { supportRepo } from './repositories/supportRepository';
 
 /**
  * Production PostgreSQL Repository for NEXORA Platform
@@ -450,6 +454,19 @@ export class PostgresRepository {
     );
     return res.rows;
   }
+
+  /**
+   * Domain Sub-Repositories for Phase 5 P1.2
+   */
+  public community = communityRepo;
+  public library = libraryRepo;
+  public content = contentRepo;
+  public support = supportRepo;
 }
 
 export const postgresRepo = new PostgresRepository();
+
+export { communityRepo, CommunityRepository } from './repositories/communityRepository';
+export { libraryRepo, LibraryRepository } from './repositories/libraryRepository';
+export { contentRepo, ContentRepository } from './repositories/contentRepository';
+export { supportRepo, SupportRepository } from './repositories/supportRepository';
