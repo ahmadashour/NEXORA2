@@ -14,8 +14,16 @@ export interface AuthRequest extends Request {
     roleId: string;
     name?: string;
     exp?: number;
+    iat?: number;
   };
   authMethod?: 'bearer' | 'cookie';
+}
+
+/**
+ * Generates high-entropy cryptographic CSRF token for double-submit cookie verification
+ */
+export function generateCsrfToken(): string {
+  return crypto.randomBytes(32).toString('hex');
 }
 
 const INSECURE_DEV_SECRET = 'nexora_secure_development_secret_key_3.1';
@@ -93,17 +101,22 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
       token = cookieToken;
       authMethod = 'cookie';
 
-      // Enforce CSRF protection for mutating requests when authenticating via ambient cookie
+      // Enforce strict CSRF protection for mutating requests when authenticating via ambient cookie
       const mutatingMethods = ['POST', 'PUT', 'DELETE', 'PATCH'];
       if (mutatingMethods.includes(req.method.toUpperCase())) {
         const csrfHeader = req.headers['x-csrf-token'];
-        const requestedWith = req.headers['x-requested-with'];
         const csrfCookie = req.cookies.nexora_csrf;
 
-        const hasValidCsrfToken = Boolean(csrfCookie && csrfHeader && csrfHeader === csrfCookie);
-        const hasRequestedWithHeader = requestedWith === 'XMLHttpRequest';
+        const hasValidCsrfToken = Boolean(
+          csrfCookie &&
+          csrfHeader &&
+          typeof csrfCookie === 'string' &&
+          typeof csrfHeader === 'string' &&
+          csrfCookie.length >= 16 &&
+          csrfHeader === csrfCookie
+        );
 
-        if (!hasValidCsrfToken && !hasRequestedWithHeader) {
+        if (!hasValidCsrfToken) {
           res.status(403).json({
             success: false,
             error: 'CSRF_VALIDATION_FAILED',
@@ -148,6 +161,7 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
       roleId: string;
       name?: string;
       exp?: number;
+      iat?: number;
     };
 
     // If JTI was used, also check JTI revocation in storage
@@ -156,6 +170,16 @@ export async function authMiddleware(req: AuthRequest, res: Response, next: Next
         success: false,
         error: 'TOKEN_REVOKED',
         message: 'تم إبطال جلسة هذا الرمز، يرجى تسجيل الدخول مجدداً',
+      });
+      return;
+    }
+
+    // Check if all sessions for this user were revoked (e.g. after password change)
+    if (decoded.userId && (await db.areTokensRevokedForUser(decoded.userId, decoded.iat))) {
+      res.status(401).json({
+        success: false,
+        error: 'TOKEN_REVOKED',
+        message: 'تم إبطال جميع جلسات هذا الحساب لدواعي الأمان، يرجى تسجيل الدخول مجدداً',
       });
       return;
     }

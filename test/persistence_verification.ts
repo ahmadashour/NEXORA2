@@ -368,13 +368,14 @@ async function main() {
         throw new Error(`Expected 403 CSRF_VALIDATION_FAILED for mutating cookie request, got ${cookiePutNoCsrf.status}`);
       }
 
-      // Test 3: Mutating request WITH CSRF header (X-Requested-With: XMLHttpRequest) -> MUST BE 200
+      // Test 3: Mutating request WITH real CSRF token (X-CSRF-Token header matching nexora_csrf cookie) -> MUST BE 200
+      const validCsrf = 'secure_double_submit_csrf_token_test_123456';
       const cookiePutWithCsrf = await fetch(`${baseUrl}/api/v1/users/profile`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Cookie: `nexora_token=${cookieAuthToken}`,
-          'X-Requested-With': 'XMLHttpRequest',
+          Cookie: `nexora_token=${cookieAuthToken}; nexora_csrf=${validCsrf}`,
+          'X-CSRF-Token': validCsrf,
         },
         body: JSON.stringify({ full_name: 'د. يوسف الأكاديمي المؤمّن' }),
       });
@@ -383,7 +384,7 @@ async function main() {
         throw new Error(`Mutating cookie request with CSRF header failed: ${cookiePutWithCsrf.status}`);
       }
 
-      return 'Cookie authentication functional for GET; mutating requests require CSRF verification (403 without header, 200 with X-Requested-With).';
+      return 'Cookie authentication functional for GET; mutating requests require strict CSRF verification (403 without token, 200 with matching X-CSRF-Token).';
     });
 
   } finally {

@@ -664,6 +664,7 @@ async function run() {
           role_name: 'معلم ممارس',
           full_name: 'مدقق التشفير',
           is_active: true,
+          last_login_at: null,
           created_at: new Date().toISOString(),
         };
 

@@ -1,8 +1,8 @@
 /**
  * NEXORA API Client
  * Centralized HTTP service for connecting to the NEXORA Express Backend.
- * Supports configurable API URL, JWT token persistence, health probing,
- * and seamless fallback handling.
+ * Supports HttpOnly Secure Cookies, double-submit CSRF protection,
+ * Bearer token backward-compatibility, and session recovery.
  */
 
 export interface ApiResponse<T = unknown> {
@@ -17,6 +17,7 @@ export interface AuthResponseData {
   success: boolean;
   message?: string;
   token?: string;
+  csrfToken?: string;
   user?: {
     id: string;
     email: string;
@@ -46,17 +47,46 @@ export interface BackendHealthInfo {
 const TOKEN_KEY = 'nexora_auth_token';
 const API_BASE = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/$/, '');
 
+function getCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+let inMemoryCsrfToken: string | null = null;
+
 export const apiClient = {
   getToken(): string | null {
-    return localStorage.getItem(TOKEN_KEY);
+    try {
+      return localStorage.getItem(TOKEN_KEY);
+    } catch {
+      return null;
+    }
   },
 
   setToken(token: string): void {
-    localStorage.setItem(TOKEN_KEY, token);
+    try {
+      localStorage.setItem(TOKEN_KEY, token);
+    } catch {
+      // Ignore if localStorage unavailable
+    }
   },
 
   clearToken(): void {
-    localStorage.removeItem(TOKEN_KEY);
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+    } catch {
+      // Ignore
+    }
+    inMemoryCsrfToken = null;
+  },
+
+  getCsrfToken(): string | null {
+    return inMemoryCsrfToken || getCookie('nexora_csrf');
+  },
+
+  setCsrfToken(csrf: string): void {
+    inMemoryCsrfToken = csrf;
   },
 
   /**
@@ -70,6 +100,7 @@ export const apiClient = {
       const response = await fetch(`${API_BASE}/health`, {
         signal: controller.signal,
         headers: { 'Accept': 'application/json' },
+        credentials: 'include',
       });
       clearTimeout(timeoutId);
 
@@ -95,9 +126,19 @@ export const apiClient = {
     school?: string;
     district?: string;
   }): Promise<AuthResponseData> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    const csrf = this.getCsrfToken();
+    if (csrf) {
+      headers['X-CSRF-Token'] = csrf;
+    }
+
     const res = await fetch(`${API_BASE}/auth/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
+      credentials: 'include',
       body: JSON.stringify(payload),
     });
 
@@ -109,6 +150,9 @@ export const apiClient = {
     if (data.token) {
       this.setToken(data.token);
     }
+    if (data.csrfToken) {
+      this.setCsrfToken(data.csrfToken);
+    }
     return data;
   },
 
@@ -116,9 +160,19 @@ export const apiClient = {
    * Login with email and password
    */
   async login(credentials: { email: string; password: string }): Promise<AuthResponseData> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    const csrf = this.getCsrfToken();
+    if (csrf) {
+      headers['X-CSRF-Token'] = csrf;
+    }
+
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
+      credentials: 'include',
       body: JSON.stringify(credentials),
     });
 
@@ -130,21 +184,30 @@ export const apiClient = {
     if (data.token) {
       this.setToken(data.token);
     }
+    if (data.csrfToken) {
+      this.setCsrfToken(data.csrfToken);
+    }
     return data;
   },
 
   /**
-   * Fetch authenticated user details and permissions
+   * Fetch authenticated user details and permissions directly from backend.
+   * Leverages HttpOnly session cookie automatically via credentials: 'include',
+   * with fallback to Authorization: Bearer token if present.
    */
   async getMe(): Promise<ApiResponse> {
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+    };
     const token = this.getToken();
-    if (!token) throw new Error('لا يوجد رمز مصادقة');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
     const res = await fetch(`${API_BASE}/auth/me`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json',
-      },
+      method: 'GET',
+      headers,
+      credentials: 'include',
     });
 
     const data = await res.json();
@@ -156,20 +219,62 @@ export const apiClient = {
   },
 
   /**
-   * Logout user and invalidate token
+   * Logout user, clear session cookies, and invalidate tokens
    */
   async logout(): Promise<void> {
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+    };
     const token = this.getToken();
     if (token) {
-      try {
-        await fetch(`${API_BASE}/auth/logout`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-      } catch {
-        // Ignore network errors on logout
-      }
+      headers['Authorization'] = `Bearer ${token}`;
     }
-    this.clearToken();
+    const csrf = this.getCsrfToken();
+    if (csrf) {
+      headers['X-CSRF-Token'] = csrf;
+    }
+
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+      });
+    } catch {
+      // Ignore network errors on logout
+    } finally {
+      this.clearToken();
+    }
+  },
+
+  /**
+   * Updates user password and invalidates all prior sessions
+   */
+  async changePassword(payload: { currentPassword: string; newPassword: string }): Promise<ApiResponse> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    const token = this.getToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const csrf = this.getCsrfToken();
+    if (csrf) {
+      headers['X-CSRF-Token'] = csrf;
+    }
+
+    const res = await fetch(`${API_BASE}/auth/change-password`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || 'تعذر تحديث كلمة المرور');
+    }
+    return data;
   },
 };

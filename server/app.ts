@@ -16,26 +16,42 @@ export function createExpressApp(): Express {
   // Trust exactly 1 reverse proxy hop (Hostinger Nginx, Cloud Run)
   app.set('trust proxy', 1);
 
-  // CORS Configuration
-  const allowedOrigins = [
+  // CORS Configuration with strict allowlist and exact regex matching
+  const allowedExactOrigins = new Set([
     'https://nexora.ashouracademy.com',
     'https://ashouracademy.com',
-  ];
+  ]);
+
+  const isValidOrigin = (origin: string): boolean => {
+    if (allowedExactOrigins.has(origin)) return true;
+
+    // Strict subdomain check for ashouracademy.com: e.g. https://*.ashouracademy.com
+    const ashourSubdomainRegex = /^https:\/\/([a-zA-Z0-9-]+\.)*ashouracademy\.com$/;
+    if (ashourSubdomainRegex.test(origin)) return true;
+
+    if (process.env.NODE_ENV !== 'production') {
+      // Development local loops
+      if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        return true;
+      }
+      // Google Cloud Run test deployment domains for this applet
+      if (
+        /^https:\/\/[a-zA-Z0-9-]+-927115076081\.[a-z0-9-]+\.run\.app$/.test(origin) ||
+        /^https:\/\/ais-(dev|pre)-[a-z0-9-]+\.europe-west2\.run\.app$/.test(origin)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  };
 
   app.use(cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps, curl, server-to-server)
       if (!origin) return callback(null, true);
 
-      const isAllowed =
-        allowedOrigins.includes(origin) ||
-        origin.endsWith('.ashouracademy.com') ||
-        (process.env.NODE_ENV !== 'production' && (
-          origin.endsWith('.run.app') ||
-          /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
-        ));
-
-      if (isAllowed) {
+      if (isValidOrigin(origin)) {
         return callback(null, true);
       }
 
@@ -44,7 +60,8 @@ export function createExpressApp(): Express {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-CSRF-Token', 'Accept'],
+    exposedHeaders: ['X-CSRF-Token'],
   }));
 
   // Cookie parsing for HttpOnly cookies support
@@ -66,9 +83,10 @@ export function createExpressApp(): Express {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
     }
 
+    // Secure CSP with unsafe-eval removed
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' https://generativelanguage.googleapis.com https://*.ashouracademy.com; frame-ancestors 'self';"
+      "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; connect-src 'self' https://generativelanguage.googleapis.com https://*.ashouracademy.com; frame-ancestors 'self';"
     );
 
     next();

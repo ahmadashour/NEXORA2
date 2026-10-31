@@ -1,11 +1,30 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { db, DatabaseUnavailableError, EmailAlreadyExistsError } from '../db';
-import { authMiddleware, AuthRequest, generateToken } from '../middleware/auth';
+import { authMiddleware, AuthRequest, generateToken, generateCsrfToken } from '../middleware/auth';
 import { validateLogin, validateRegister } from '../middleware/validator';
 import { createRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
+
+// Enforce OWASP-recommended bcrypt cost factor of 12
+const BCRYPT_ROUNDS = 12;
+
+export const getSessionCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+});
+
+export const getCsrfCookieOptions = () => ({
+  httpOnly: false,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+});
 
 // Apply rate limiter: max 40 auth attempts per 10 minutes
 const authLimiter = createRateLimiter({ maxRequests: 40, windowMs: 10 * 60 * 1000 });
@@ -43,8 +62,8 @@ router.post('/register', validateRegister, async (req: AuthRequest, res: Respons
       return;
     }
     
-    // Hash password securely with bcrypt (10 salt rounds)
-    const password_hash = await bcrypt.hash(password, 10);
+    // Hash password securely with bcrypt (12 salt rounds)
+    const password_hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     // Create user and profile atomically in a single transaction
     const userId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -87,12 +106,19 @@ router.post('/register', validateRegister, async (req: AuthRequest, res: Respons
       return;
     }
     const token = generateToken(sanitized);
+    const csrfToken = generateCsrfToken();
     const permissions = await db.getRolePermissions(roleRecord.id);
+
+    // Set HttpOnly session cookies & readable CSRF cookie
+    res.cookie('nexora_token', token, getSessionCookieOptions());
+    res.cookie('auth_token', token, getSessionCookieOptions());
+    res.cookie('nexora_csrf', csrfToken, getCsrfCookieOptions());
 
     res.status(201).json({
       success: true,
       message: 'تم إنشاء الحساب بنجاح في منصة NEXORA',
       token,
+      csrfToken,
       user: sanitized,
       permissions: permissions.map(p => p.code),
     });
@@ -199,13 +225,20 @@ router.post('/login', validateLogin, async (req: AuthRequest, res: Response) => 
       return;
     }
     const token = generateToken(sanitized);
+    const csrfToken = generateCsrfToken();
     const permissions = await db.getRolePermissions(user.role_id);
     const profile = await db.getProfileByUserId(user.id);
+
+    // Set HttpOnly session cookies & readable CSRF cookie
+    res.cookie('nexora_token', token, getSessionCookieOptions());
+    res.cookie('auth_token', token, getSessionCookieOptions());
+    res.cookie('nexora_csrf', csrfToken, getCsrfCookieOptions());
 
     res.status(200).json({
       success: true,
       message: 'تم تسجيل الدخول بنجاح',
       token,
+      csrfToken,
       user: {
         ...sanitized,
         profile,
@@ -383,7 +416,7 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
       return;
     }
 
-    const newHash = await bcrypt.hash(newPassword, 10);
+    const newHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     const updated = await db.updateUserPassword(user.id, newHash);
     if (!updated) {
       res.status(500).json({
@@ -394,7 +427,9 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
       return;
     }
 
-    // Revoke current session tokens on password change
+    // Revoke ALL user sessions across all devices on password change
+    await db.revokeAllUserTokens(user.id);
+
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       await db.revokeToken(authHeader.split(' ')[1]);
@@ -402,6 +437,11 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
     if (req.tokenClaims?.jti) {
       await db.revokeToken(req.tokenClaims.jti, user.id);
     }
+
+    // Clear session cookies for current client
+    res.clearCookie('nexora_token', { path: '/' });
+    res.clearCookie('auth_token', { path: '/' });
+    res.clearCookie('nexora_csrf', { path: '/' });
 
     await db.logActivity({
       user_id: user.id,
@@ -412,7 +452,7 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
 
     res.status(200).json({
       success: true,
-      message: 'تم تحديث كلمة المرور بنجاح في منظومة NEXORA وإبطال الجلسات السابقة',
+      message: 'تم تحديث كلمة المرور بنجاح في منظومة NEXORA وإبطال كافة الجلسات السابقة',
     });
   } catch (err: unknown) {
     if (err instanceof DatabaseUnavailableError || (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 503)) {

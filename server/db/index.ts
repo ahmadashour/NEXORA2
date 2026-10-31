@@ -326,6 +326,19 @@ class InMemoryDatabaseStore {
     return this.revokedTokens.has(this.normalizeToken(tokenOrJti));
   }
 
+  private userRevocationTimestamps = new Map<string, number>();
+
+  public async revokeAllUserTokens(userId: string): Promise<void> {
+    this.userRevocationTimestamps.set(userId, Math.floor(Date.now() / 1000));
+  }
+
+  public async areTokensRevokedForUser(userId: string, tokenIssuedAtSeconds?: number): Promise<boolean> {
+    const revokedBefore = this.userRevocationTimestamps.get(userId);
+    if (!revokedBefore) return false;
+    if (!tokenIssuedAtSeconds) return true;
+    return tokenIssuedAtSeconds <= revokedBefore;
+  }
+
   public async logActivity(entry: {
     user_id: string | null;
     action: string;
@@ -558,6 +571,21 @@ class DatabaseStore {
 
   public async isTokenRevokedAsync(tokenOrJti: string): Promise<boolean> {
     return this.isTokenRevoked(tokenOrJti);
+  }
+
+  public async revokeAllUserTokens(userId: string): Promise<void> {
+    if (this.isPostgresActive()) {
+      await postgresRepo.revokeAllUserTokens(userId);
+    }
+    await this.inMemory.revokeAllUserTokens(userId);
+  }
+
+  public async areTokensRevokedForUser(userId: string, tokenIssuedAtSeconds?: number): Promise<boolean> {
+    if (this.isPostgresActive()) {
+      const isRevoked = await postgresRepo.areTokensRevokedForUser(userId, tokenIssuedAtSeconds);
+      if (isRevoked) return true;
+    }
+    return await this.inMemory.areTokensRevokedForUser(userId, tokenIssuedAtSeconds);
   }
 
   public async logActivity(entry: {

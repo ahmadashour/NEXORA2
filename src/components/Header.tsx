@@ -8,6 +8,7 @@ interface HeaderProps {
   userSession: UserSession;
   onLogout: () => void;
   onNavigate: (sectionId: string) => void;
+  isSessionLoading?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -15,7 +16,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuth,
   userSession,
   onLogout,
-  onNavigate
+  onNavigate,
+  isSessionLoading = false,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -101,7 +103,11 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           {/* User Auth / Profile */}
-          {userSession.isLoggedIn ? (
+          {isSessionLoading ? (
+            <div className="h-9 w-20 bg-slate-100 rounded-lg flex items-center justify-center border border-slate-200">
+              <div className="w-3.5 h-3.5 rounded-full border-2 border-slate-300 border-t-[#00A7B5] animate-spin" />
+            </div>
+          ) : userSession.isLoggedIn ? (
             <div className="relative">
               <button
                 onClick={() => setUserDropdownOpen(!userDropdownOpen)}

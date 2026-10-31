@@ -27,8 +27,9 @@ import { ContactModal } from './components/modals/ContactModal';
 import { PrivacyModal } from './components/modals/PrivacyModal';
 
 // Types
-import { PortalItem, ContentItem, CommunityPost, UserSession } from './types';
+import { PortalId, PortalItem, ContentItem, CommunityPost, UserSession } from './types';
 import { PORTALS_DATA } from './data/mockData';
+import { apiClient } from './services/apiClient';
 
 export default function App() {
   // Modal states
@@ -52,6 +53,35 @@ export default function App() {
   const [userSession, setUserSession] = useState<UserSession>({
     isLoggedIn: false
   });
+  const [isSessionLoading, setIsSessionLoading] = useState(true);
+
+  // Recover authenticated session on initial mount / page refresh
+  useEffect(() => {
+    let isMounted = true;
+    apiClient.getMe()
+      .then((res: any) => {
+        if (isMounted && res && res.success && res.user) {
+          setUserSession({
+            isLoggedIn: true,
+            name: res.user.full_name || res.user.email,
+            role: res.user.role_name || res.user.role_code,
+            portalId: (res.user.role_code?.toLowerCase() as PortalId) || 'teach',
+          });
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setUserSession({ isLoggedIn: false });
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsSessionLoading(false);
+        }
+      });
+
+    return () => { isMounted = false; };
+  }, []);
 
   // Global search shortcut listener (press '/' or 'Ctrl+K' / 'Cmd+K')
   useEffect(() => {
@@ -81,7 +111,12 @@ export default function App() {
     setAuthModalConfig({ isOpen: true, mode });
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await apiClient.logout();
+    } catch {
+      // Ignore network errors
+    }
     setUserSession({ isLoggedIn: false });
   };
 
@@ -112,6 +147,7 @@ export default function App() {
         userSession={userSession}
         onLogout={handleLogout}
         onNavigate={handleNavigate}
+        isSessionLoading={isSessionLoading}
       />
 
       <main className="flex-1">

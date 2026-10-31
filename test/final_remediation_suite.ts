@@ -14,6 +14,7 @@ import http from 'http';
 import { createExpressApp } from '../server/app';
 import { db } from '../server/db';
 import { checkPostgresConnection } from '../server/db/postgres';
+import { generateToken } from '../server/middleware/auth';
 
 interface TestResult {
   id: string;
@@ -288,8 +289,22 @@ async function executeSprintVerification() {
           throw new Error('Expected PostgreSQL to be unreachable in this isolated sandbox');
         }
 
-        // 2. Verify diagnostics endpoint reports truthful status
-        const diagRes = await fetch(`${baseUrl}/api/v1/health/db-diagnostics`);
+        // 2. Verify diagnostics endpoint reports truthful status with authorized supervisor token
+        const leadUser = await db.createUserWithProfile(
+          {
+            id: `usr_diag_lead_${Date.now()}`,
+            email: `diag.lead.${Date.now()}@ashouracademy.com`,
+            password_hash: 'dummy',
+            role_id: 'role_lead',
+          },
+          { id: `prf_diag_${Date.now()}`, full_name: 'موجه تشخيص' }
+        );
+        const sanitizedLead = (await db.getSanitizedUser(leadUser.user.id))!;
+        const leadToken = generateToken(sanitizedLead);
+
+        const diagRes = await fetch(`${baseUrl}/api/v1/health/db-diagnostics`, {
+          headers: { Authorization: `Bearer ${leadToken}` },
+        });
         const diagData = await diagRes.json();
         if (!diagData.diagnostics || diagData.diagnostics.postgresConnection.isReachable !== false) {
           throw new Error('Diagnostics endpoint failed to disclose actual database status');

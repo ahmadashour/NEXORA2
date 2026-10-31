@@ -282,6 +282,39 @@ export class PostgresRepository {
   }
 
   /**
+   * Revokes all active sessions for a user (e.g. upon password change)
+   */
+  public async revokeAllUserTokens(userId: string): Promise<void> {
+    const now = new Date();
+    const defaultExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const markerJti = `user_all_revoked_${userId}_${Math.floor(now.getTime() / 1000)}`;
+    await query(
+      `INSERT INTO revoked_tokens (jti, user_id, expires_at, revoked_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+       ON CONFLICT (jti) DO NOTHING`,
+      [markerJti, userId, defaultExpiry.toISOString()]
+    );
+  }
+
+  /**
+   * Checks if all tokens for a user were revoked prior to the token's issued-at time
+   */
+  public async areTokensRevokedForUser(userId: string, tokenIssuedAtSeconds?: number): Promise<boolean> {
+    if (!tokenIssuedAtSeconds) return false;
+    const res = await query<{ revoked_epoch: number }>(
+      `SELECT EXTRACT(EPOCH FROM revoked_at)::int as revoked_epoch
+       FROM revoked_tokens
+       WHERE user_id = $1 AND jti LIKE 'user_all_revoked_%'
+       ORDER BY revoked_at DESC
+       LIMIT 1`,
+      [userId]
+    );
+    if (res.rows.length === 0) return false;
+    const revokedEpoch = res.rows[0].revoked_epoch;
+    return tokenIssuedAtSeconds <= revokedEpoch;
+  }
+
+  /**
    * Inserts an activity log entry into the relational database
    */
   public async logActivity(entry: {
