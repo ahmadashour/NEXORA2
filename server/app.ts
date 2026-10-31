@@ -30,22 +30,24 @@ export function createExpressApp(): Express {
   const isValidOrigin = (origin: string): boolean => {
     if (allowedExactOrigins.has(origin)) return true;
 
+    if (process.env.CORS_ORIGIN) {
+      const allowedFromEnv = process.env.CORS_ORIGIN.split(',').map((s) => s.trim());
+      if (allowedFromEnv.includes(origin) || process.env.CORS_ORIGIN === '*') {
+        return true;
+      }
+    }
+
     // Strict subdomain check for ashouracademy.com: e.g. https://*.ashouracademy.com
     const ashourSubdomainRegex = /^https:\/\/([a-zA-Z0-9-]+\.)*ashouracademy\.com$/;
     if (ashourSubdomainRegex.test(origin)) return true;
 
-    if (process.env.NODE_ENV !== 'production') {
-      // Development local loops
-      if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-        return true;
-      }
-      // Google Cloud Run test deployment domains for this applet
-      if (
-        /^https:\/\/[a-zA-Z0-9-]+-927115076081\.[a-z0-9-]+\.run\.app$/.test(origin) ||
-        /^https:\/\/ais-(dev|pre)-[a-z0-9-]+\.europe-west2\.run\.app$/.test(origin)
-      ) {
-        return true;
-      }
+    // Development, local loops, Google Cloud Run, and AI Studio environments
+    if (
+      origin.endsWith('.run.app') ||
+      origin.endsWith('.google.com') ||
+      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+    ) {
+      return true;
     }
 
     return false;
