@@ -381,6 +381,169 @@ export class ContentRepository {
       return false;
     });
   }
+
+  /**
+   * Updates an existing content item
+   */
+  public async updateContent(
+    id: string,
+    updates: Partial<Pick<ContentItem, 'title' | 'description' | 'category' | 'subject' | 'grade_level' | 'thumbnail_url' | 'video_url' | 'read_time_minutes' | 'status' | 'featured'>>
+  ): Promise<ContentItem> {
+    const fields: string[] = [];
+    const values: any[] = [id];
+    let idx = 2;
+
+    if (updates.title !== undefined) {
+      fields.push(`title = $${idx++}`);
+      values.push(updates.title.trim());
+    }
+    if (updates.description !== undefined) {
+      fields.push(`description = $${idx++}`);
+      values.push(updates.description.trim());
+    }
+    if (updates.category !== undefined) {
+      fields.push(`category = $${idx++}`);
+      values.push(updates.category);
+    }
+    if (updates.subject !== undefined) {
+      fields.push(`subject = $${idx++}`);
+      values.push(updates.subject ? updates.subject.trim() : null);
+    }
+    if (updates.grade_level !== undefined) {
+      fields.push(`grade_level = $${idx++}`);
+      values.push(updates.grade_level ? updates.grade_level.trim() : null);
+    }
+    if (updates.thumbnail_url !== undefined) {
+      fields.push(`thumbnail_url = $${idx++}`);
+      values.push(updates.thumbnail_url);
+    }
+    if (updates.video_url !== undefined) {
+      fields.push(`video_url = $${idx++}`);
+      values.push(updates.video_url);
+    }
+    if (updates.read_time_minutes !== undefined) {
+      fields.push(`read_time_minutes = $${idx++}`);
+      values.push(updates.read_time_minutes);
+    }
+    if (updates.status !== undefined) {
+      fields.push(`status = $${idx++}`);
+      values.push(updates.status);
+    }
+    if (updates.featured !== undefined) {
+      fields.push(`featured = $${idx++}`);
+      values.push(updates.featured);
+    }
+
+    if (fields.length === 0) {
+      const existing = await this.getContentById(id);
+      if (!existing) throw new Error('CONTENT_NOT_FOUND: عنصر المحتوى غير موجود');
+      return existing;
+    }
+
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    const sql = `UPDATE content_items SET ${fields.join(', ')} WHERE id = $1 RETURNING *`;
+    const res = await query<ContentItem>(sql, values);
+
+    if (res.rowCount === 0) {
+      throw new Error('CONTENT_NOT_FOUND: عنصر المحتوى غير موجود');
+    }
+
+    return await this.getContentById(id) || res.rows[0];
+  }
+
+  /**
+   * Soft deletes content item by updating status to 'archived'
+   */
+  public async softDeleteContent(id: string): Promise<boolean> {
+    const res = await query(
+      `UPDATE content_items SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      [id]
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  /**
+   * Retrieves event detail directly by event ID or content item ID
+   */
+  public async getEventById(eventId: string, currentUserId?: string): Promise<EventDetail | null> {
+    const sql = `
+      SELECT ed.*
+      FROM event_details ed
+      WHERE ed.id = $1 OR ed.content_item_id = $1
+      LIMIT 1
+    `;
+    const res = await query<EventDetail>(sql, [eventId]);
+    if (!res.rows[0]) return null;
+
+    const event = res.rows[0];
+    if (currentUserId) {
+      const regRes = await query(
+        'SELECT 1 FROM event_registrations WHERE event_id = $1 AND user_id = $2',
+        [event.id, currentUserId]
+      );
+      event.is_registered_by_me = (regRes.rowCount ?? 0) > 0;
+    }
+
+    return event;
+  }
+
+  /**
+   * Updates event detail record
+   */
+  public async updateEventDetail(
+    eventId: string,
+    updates: Partial<Pick<EventDetail, 'event_date' | 'duration_minutes' | 'location_type' | 'location_address' | 'speaker_name' | 'speaker_title' | 'seats_capacity'>>
+  ): Promise<EventDetail> {
+    const fields: string[] = [];
+    const values: any[] = [eventId];
+    let idx = 2;
+
+    if (updates.event_date !== undefined) {
+      fields.push(`event_date = $${idx++}`);
+      values.push(updates.event_date);
+    }
+    if (updates.duration_minutes !== undefined) {
+      fields.push(`duration_minutes = $${idx++}`);
+      values.push(updates.duration_minutes);
+    }
+    if (updates.location_type !== undefined) {
+      fields.push(`location_type = $${idx++}`);
+      values.push(updates.location_type);
+    }
+    if (updates.location_address !== undefined) {
+      fields.push(`location_address = $${idx++}`);
+      values.push(updates.location_address);
+    }
+    if (updates.speaker_name !== undefined) {
+      fields.push(`speaker_name = $${idx++}`);
+      values.push(updates.speaker_name.trim());
+    }
+    if (updates.speaker_title !== undefined) {
+      fields.push(`speaker_title = $${idx++}`);
+      values.push(updates.speaker_title);
+    }
+    if (updates.seats_capacity !== undefined) {
+      fields.push(`seats_capacity = $${idx++}`);
+      values.push(updates.seats_capacity);
+    }
+
+    if (fields.length === 0) {
+      const existing = await this.getEventById(eventId);
+      if (!existing) throw new Error('EVENT_NOT_FOUND: الفعالية غير موجودة');
+      return existing;
+    }
+
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    const sql = `UPDATE event_details SET ${fields.join(', ')} WHERE id = $1 RETURNING *`;
+    const res = await query<EventDetail>(sql, values);
+
+    if (res.rowCount === 0) {
+      throw new Error('EVENT_NOT_FOUND: الفعالية غير موجودة');
+    }
+
+    return res.rows[0];
+  }
 }
 
 export const contentRepo = new ContentRepository();
+

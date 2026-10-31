@@ -91,3 +91,16 @@ export const aiLimiter = createRateLimiter({
   windowMs: 60 * 1000, // 20 requests per minute
   keyPrefix: 'ai',
 });
+
+export const apiWriteLimiter = createRateLimiter({
+  maxRequests: 60,
+  windowMs: 60 * 1000, // 60 writes per minute
+  keyPrefix: 'api-write',
+});
+
+export const inquiryLimiter = createRateLimiter({
+  maxRequests: 10,
+  windowMs: 15 * 60 * 1000, // 10 inquiries per 15 minutes
+  keyPrefix: 'inquiry',
+});
+

@@ -420,6 +420,132 @@ export class CommunityRepository {
     const res = await query<CommunityComment>(sql, [postId]);
     return res.rows;
   }
+
+  /**
+   * Adds like idempotently
+   */
+  public async addLike(postId: string, userId: string): Promise<{ liked: boolean; likesCount: number }> {
+    return await withTransaction(async (client) => {
+      const insRes = await client.query(
+        'INSERT INTO community_likes (post_id, user_id, created_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING',
+        [postId, userId]
+      );
+      if (insRes.rowCount && insRes.rowCount > 0) {
+        await client.query('UPDATE community_posts SET likes_count = likes_count + 1 WHERE id = $1', [postId]);
+      }
+      const countRes = await client.query<{ likes_count: number }>(
+        'SELECT likes_count FROM community_posts WHERE id = $1',
+        [postId]
+      );
+      return { liked: true, likesCount: countRes.rows[0]?.likes_count ?? 0 };
+    });
+  }
+
+  /**
+   * Removes like idempotently
+   */
+  public async removeLike(postId: string, userId: string): Promise<{ liked: boolean; likesCount: number }> {
+    return await withTransaction(async (client) => {
+      const delRes = await client.query(
+        'DELETE FROM community_likes WHERE post_id = $1 AND user_id = $2',
+        [postId, userId]
+      );
+      if (delRes.rowCount && delRes.rowCount > 0) {
+        await client.query('UPDATE community_posts SET likes_count = GREATEST(0, likes_count - 1) WHERE id = $1', [postId]);
+      }
+      const countRes = await client.query<{ likes_count: number }>(
+        'SELECT likes_count FROM community_posts WHERE id = $1',
+        [postId]
+      );
+      return { liked: false, likesCount: countRes.rows[0]?.likes_count ?? 0 };
+    });
+  }
+
+  /**
+   * Adds bookmark idempotently
+   */
+  public async addBookmark(postId: string, userId: string): Promise<{ bookmarked: boolean; bookmarksCount: number }> {
+    return await withTransaction(async (client) => {
+      const insRes = await client.query(
+        'INSERT INTO community_bookmarks (post_id, user_id, created_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING',
+        [postId, userId]
+      );
+      if (insRes.rowCount && insRes.rowCount > 0) {
+        await client.query('UPDATE community_posts SET bookmarks_count = bookmarks_count + 1 WHERE id = $1', [postId]);
+      }
+      const countRes = await client.query<{ bookmarks_count: number }>(
+        'SELECT bookmarks_count FROM community_posts WHERE id = $1',
+        [postId]
+      );
+      return { bookmarked: true, bookmarksCount: countRes.rows[0]?.bookmarks_count ?? 0 };
+    });
+  }
+
+  /**
+   * Removes bookmark idempotently
+   */
+  public async removeBookmark(postId: string, userId: string): Promise<{ bookmarked: boolean; bookmarksCount: number }> {
+    return await withTransaction(async (client) => {
+      const delRes = await client.query(
+        'DELETE FROM community_bookmarks WHERE post_id = $1 AND user_id = $2',
+        [postId, userId]
+      );
+      if (delRes.rowCount && delRes.rowCount > 0) {
+        await client.query('UPDATE community_posts SET bookmarks_count = GREATEST(0, bookmarks_count - 1) WHERE id = $1', [postId]);
+      }
+      const countRes = await client.query<{ bookmarks_count: number }>(
+        'SELECT bookmarks_count FROM community_posts WHERE id = $1',
+        [postId]
+      );
+      return { bookmarked: false, bookmarksCount: countRes.rows[0]?.bookmarks_count ?? 0 };
+    });
+  }
+
+  /**
+   * Lists posts bookmarked by a specific user with pagination
+   */
+  public async listBookmarks(userId: string, pagination: { page?: number; limit?: number } = {}): Promise<PaginatedResult<CommunityPost>> {
+    const page = Math.max(1, pagination.page || 1);
+    const limit = Math.min(50, Math.max(1, pagination.limit || 10));
+    const offset = (page - 1) * limit;
+
+    const countRes = await query<{ total: string }>(
+      'SELECT COUNT(*) AS total FROM community_bookmarks cb JOIN community_posts p ON cb.post_id = p.id WHERE cb.user_id = $1',
+      [userId]
+    );
+    const total = parseInt(countRes.rows[0]?.total || '0', 10);
+
+    const dataSql = `
+      SELECT 
+        p.*,
+        up.full_name AS author_name,
+        r.code AS author_role,
+        EXISTS(SELECT 1 FROM community_likes cl WHERE cl.post_id = p.id AND cl.user_id = $1) AS is_liked_by_me,
+        TRUE AS is_bookmarked_by_me
+      FROM community_bookmarks cb
+      JOIN community_posts p ON cb.post_id = p.id
+      LEFT JOIN users u ON p.author_id = u.id
+      LEFT JOIN user_profiles up ON u.id = up.user_id
+      LEFT JOIN roles r ON u.role_id = r.id
+      WHERE cb.user_id = $1
+      ORDER BY cb.created_at DESC
+      LIMIT $2 OFFSET $3
+    `;
+
+    const dataRes = await query<CommunityPost>(dataSql, [userId, limit, offset]);
+
+    return {
+      data: dataRes.rows,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+        hasMore: page * limit < total,
+      },
+    };
+  }
 }
 
 export const communityRepo = new CommunityRepository();
+

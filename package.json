@@ -21,13 +21,17 @@
     "db:migrate": "tsx db/migrate.ts",
     "db:seed": "tsx db/seed.ts",
     "test:p12": "tsx test/phase5_p1_2_foundation.test.ts",
+    "test:p13": "tsx test/phase5_p1_3_api.test.ts",
+    "test:p142": "tsx test/phase5_p1_4_2_adapters.test.ts",
+    "test:p143": "tsx test/phase5_p1_4_3_community_integration.test.ts",
+    "test:p144": "tsx test/phase5_p1_4_4_library_integration.test.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test:master": "rm -f bun.lock && tsx test/master_production_remediation.test.ts",
     "test:phase4": "tsx test/phase4_independent_verification.test.ts",
     "test:p0": "tsx test/phase5_p0_security.test.ts",
-    "test:all": "npm run test:backend && npm run test:audit && npm run test:persistence && npm run test:remediation && npm run test:sprint && npm run test:phase331 && npm run test:master && npm run test:phase4 && npm run test:p0 && npm run test:p12"
+    "test:all": "npm run test:backend && npm run test:audit && npm run test:persistence && npm run test:remediation && npm run test:sprint && npm run test:phase331 && npm run test:master && npm run test:phase4 && npm run test:p0 && npm run test:p12 && npm run test:p13 && npm run test:p142 && npm run test:p143 && npm run test:p144"
   },
   "engines": {
     "node": ">=22.0.0",

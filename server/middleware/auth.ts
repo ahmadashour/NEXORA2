@@ -289,3 +289,62 @@ export function requirePermission(permissionCode: string) {
     }
   };
 }
+
+/**
+ * Optional Authentication Middleware
+ * Extracts authenticated user if valid token exists, without returning 401 when absent.
+ * Used for public endpoints that offer enhanced personalization (likes, bookmarks, draft views for authors/admins).
+ */
+export async function optionalAuth(req: AuthRequest, _res: Response, next: NextFunction): Promise<void> {
+  let token: string | null = null;
+  let authMethod: 'bearer' | 'cookie' = 'bearer';
+
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+    authMethod = 'bearer';
+  } else if (req.cookies) {
+    const cookieToken = req.cookies.nexora_token || req.cookies.auth_token;
+    if (cookieToken) {
+      token = cookieToken;
+      authMethod = 'cookie';
+    }
+  }
+
+  if (!token) {
+    return next();
+  }
+
+  try {
+    if (await db.isTokenRevokedAsync(token)) {
+      return next();
+    }
+
+    const secret = getJwtSecret();
+    const decoded = jwt.verify(token, secret, {
+      algorithms: ['HS256'],
+      issuer: 'nexora.ashouracademy.com',
+      audience: 'nexora-users',
+    }) as any;
+
+    if (decoded.jti && (await db.isTokenRevokedAsync(decoded.jti))) {
+      return next();
+    }
+
+    if (decoded.userId && (await db.areTokensRevokedForUser(decoded.userId, decoded.iat))) {
+      return next();
+    }
+
+    const user = await db.getSanitizedUser(decoded.userId);
+    if (user && user.is_active) {
+      req.user = user;
+      req.tokenClaims = decoded;
+      req.authMethod = authMethod;
+    }
+  } catch {
+    // Gracefully ignore expired/invalid tokens in optional mode
+  }
+
+  next();
+}
+

@@ -61,6 +61,11 @@ export class SupportRepository {
       values.push(filters.status);
     }
 
+    if (filters.user_id) {
+      conditions.push(`user_id = $${idx++}`);
+      values.push(filters.user_id);
+    }
+
     if (filters.portal_code) {
       conditions.push(`portal_code = $${idx++}`);
       values.push(filters.portal_code);

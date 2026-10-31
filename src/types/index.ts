@@ -62,6 +62,10 @@ export interface CommunityPost {
   saves: number;
   fileType?: string;
   attachmentsCount?: number;
+  isLiked?: boolean;
+  isSaved?: boolean;
+  authorId?: string;
+  commentsCount?: number;
 }
 
 export interface QuickTool {

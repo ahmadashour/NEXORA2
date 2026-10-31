@@ -6,6 +6,11 @@ import authRouter from './routes/auth';
 import usersRouter from './routes/users';
 import portalsRouter from './routes/portals';
 import aiRouter from './routes/ai';
+import communityRouter from './routes/community';
+import libraryRouter from './routes/library';
+import contentRouter from './routes/content';
+import eventsRouter from './routes/events';
+import supportRouter from './routes/support';
 
 export function createExpressApp(): Express {
   const app = express();
@@ -107,6 +112,11 @@ export function createExpressApp(): Express {
   app.use('/api/v1/users', usersRouter);
   app.use('/api/v1/portals', portalsRouter);
   app.use('/api/v1/ai', aiRouter);
+  app.use('/api/v1/community', communityRouter);
+  app.use('/api/v1/library', libraryRouter);
+  app.use('/api/v1/content', contentRouter);
+  app.use('/api/v1/events', eventsRouter);
+  app.use('/api/v1/support', supportRouter);
 
   // Backward compatibility alias for `/api/health`
   app.use('/api/health', healthRouter);

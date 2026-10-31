@@ -280,6 +280,7 @@ export interface ContactInquiry {
 }
 
 export interface ContactFilterParams extends PaginationParams {
+  user_id?: string;
   status?: InquiryStatus;
   portal_code?: string;
   search?: string;
