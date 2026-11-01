@@ -71,6 +71,11 @@ export class SupportRepository {
       values.push(filters.portal_code);
     }
 
+    if (filters.user_id) {
+      conditions.push(`user_id = $${idx++}`);
+      values.push(filters.user_id);
+    }
+
     if (filters.search) {
       conditions.push(`(full_name ILIKE $${idx} OR email ILIKE $${idx} OR subject ILIKE $${idx} OR message ILIKE $${idx})`);
       values.push(`%${filters.search.trim()}%`);

@@ -32,6 +32,7 @@ async function startServer() {
         middlewareMode: true,
         host: HOST,
         port: PORT,
+        allowedHosts: true,
       },
       appType: 'spa',
     });
