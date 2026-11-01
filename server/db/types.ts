@@ -284,6 +284,5 @@ export interface ContactFilterParams extends PaginationParams {
   status?: InquiryStatus;
   portal_code?: string;
   search?: string;
-  user_id?: string;
 }
 

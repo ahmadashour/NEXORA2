@@ -247,3 +247,90 @@ export interface AdaptedComment {
   createdAt: string;
 }
 
+// ============================================================================
+// 4. SUPPORT & INQUIRY CONTRACTS
+// ============================================================================
+
+export type BackendInquiryStatus = 'received' | 'in_progress' | 'resolved' | 'closed';
+
+export type SupportInquiryPayload = CreateInquiryPayload;
+
+export interface BackendSupportInquiry {
+  id: string;
+  user_id?: string | null;
+  full_name: string;
+  email: string;
+  phone?: string | null;
+  subject: string;
+  message: string;
+  portal_code?: string | null;
+  status: BackendInquiryStatus;
+  admin_notes?: string | null;
+  assigned_to?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface SupportInquiryUI {
+  id: string;
+  userId?: string | null;
+  fullName: string;
+  email: string;
+  phone?: string | null;
+  subject: string;
+  message: string;
+  portalCode?: string | null;
+  status: BackendInquiryStatus;
+  statusArabic: string;
+  statusColor: string;
+  adminNotes?: string | null;
+  assignedTo?: string | null;
+  createdAt: string;
+  date: string;
+}
+
+export interface InquiryFilters {
+  page?: number;
+  limit?: number;
+  status?: string;
+  portal_code?: string;
+  search?: string;
+}
+
+export interface EventPagination {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasMore?: boolean;
+}
+
+export interface InquiriesApiResponse {
+  success: boolean;
+  data?: BackendSupportInquiry[];
+  pagination?: EventPagination;
+  error?: string;
+  message?: string;
+}
+
+export interface SingleInquiryApiResponse {
+  success: boolean;
+  data?: BackendSupportInquiry;
+  error?: string;
+  message?: string;
+}
+
+export interface CreateInquiryApiResponse {
+  success: boolean;
+  data?: BackendSupportInquiry;
+  error?: string;
+  message?: string;
+}
+
+export interface UpdateInquiryStatusPayload {
+  status: BackendInquiryStatus;
+  admin_notes?: string;
+  assigned_to?: string;
+}
+
+

@@ -240,7 +240,6 @@ export default function App() {
       <ContentDetailModal
         item={selectedContent}
         onClose={() => setSelectedContent(null)}
-        onOpenAuth={() => setAuthModalConfig({ isOpen: true, mode: 'login' })}
       />
 
       <PostDetailModal
