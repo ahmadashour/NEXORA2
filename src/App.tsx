@@ -31,6 +31,7 @@ import { TeacherWorkspaceModal } from './components/modals/TeacherWorkspaceModal
 import { PortalId, PortalItem, ContentItem, CommunityPost, UserSession } from './types';
 import { PORTALS_DATA } from './data/mockData';
 import { apiClient } from './services/apiClient';
+import { isTeacherWorkspaceAuthorized } from './utils/roleAccess';
 
 export default function App() {
   // Modal states
@@ -102,6 +103,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Auto-close Teacher Workspace modal if user logs out or session becomes unauthorized
+  useEffect(() => {
+    if (!userSession.isLoggedIn || !isTeacherWorkspaceAuthorized(userSession)) {
+      setIsTeacherWorkspaceOpen(false);
+    }
+  }, [userSession]);
+
   const handleNavigate = (sectionId: string) => {
     const el = document.getElementById(sectionId);
     if (el) {
@@ -120,6 +128,13 @@ export default function App() {
       // Ignore network errors
     }
     setUserSession({ isLoggedIn: false });
+    setIsTeacherWorkspaceOpen(false);
+  };
+
+  const handleOpenTeacherWorkspace = () => {
+    if (isTeacherWorkspaceAuthorized(userSession)) {
+      setIsTeacherWorkspaceOpen(true);
+    }
   };
 
   const handleQuickTool = (toolId: string) => {
@@ -150,7 +165,7 @@ export default function App() {
         onLogout={handleLogout}
         onNavigate={handleNavigate}
         isSessionLoading={isSessionLoading}
-        onOpenTeacherWorkspace={() => setIsTeacherWorkspaceOpen(true)}
+        onOpenTeacherWorkspace={handleOpenTeacherWorkspace}
       />
 
       <main className="flex-1">
@@ -201,7 +216,7 @@ export default function App() {
         onClose={() => setSelectedPortal(null)}
         onLaunchVirtualLab={() => setIsLabOpen(true)}
         onOpenAiAssistant={() => setIsAiAssistantOpen(true)}
-        onOpenTeacherWorkspace={() => setIsTeacherWorkspaceOpen(true)}
+        onOpenTeacherWorkspace={handleOpenTeacherWorkspace}
       />
 
       <LabModal

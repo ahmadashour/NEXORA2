@@ -31,6 +31,7 @@
     "test:p147": "tsx test/phase5_p1_4_7_support_integration.test.ts",
     "test:phase21": "tsx test/phase2_1_teacher_workspace.test.ts",
     "test:phase22": "tsx test/phase2_2_classes_students_attendance.test.ts",
+    "test:phase22r1": "tsx test/phase2_2_r1_ui_integration.test.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",

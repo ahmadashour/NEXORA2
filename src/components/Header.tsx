@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Search, User, Menu, X, Sparkles, LogOut, ChevronDown, BookOpen, Users } from 'lucide-react';
 import { UserSession } from '../types';
+import { isTeacherWorkspaceAuthorized } from '../utils/roleAccess';
 
 interface HeaderProps {
   onOpenSearch: () => void;
@@ -104,8 +105,8 @@ export const Header: React.FC<HeaderProps> = ({
             </kbd>
           </button>
 
-          {/* Teacher Workspace Quick Shortcut for Logged-In Teachers */}
-          {userSession.isLoggedIn && onOpenTeacherWorkspace && (
+          {/* Teacher Workspace Quick Shortcut for Logged-In Authorized Teachers */}
+          {userSession.isLoggedIn && isTeacherWorkspaceAuthorized(userSession) && onOpenTeacherWorkspace && (
             <button
               onClick={onOpenTeacherWorkspace}
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-[#854D0E] border border-amber-300/60 text-xs font-bold transition-all shadow-2xs cursor-pointer min-h-[44px]"
@@ -143,7 +144,7 @@ export const Header: React.FC<HeaderProps> = ({
                     <p className="text-xs font-bold text-slate-900">{userSession.name}</p>
                     <p className="text-[11px] text-slate-500">{userSession.role}</p>
                   </div>
-                  {onOpenTeacherWorkspace && (
+                  {isTeacherWorkspaceAuthorized(userSession) && onOpenTeacherWorkspace && (
                     <button
                       onClick={() => {
                         setUserDropdownOpen(false);
@@ -222,14 +223,55 @@ export const Header: React.FC<HeaderProps> = ({
             ))}
           </div>
 
-          {!userSession.isLoggedIn && (
+          {/* Mobile Teacher Workspace Button for Authorized Teachers */}
+          {userSession.isLoggedIn && isTeacherWorkspaceAuthorized(userSession) && onOpenTeacherWorkspace && (
+            <div className="pt-2 pb-3 mb-2 border-b border-slate-100">
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenTeacherWorkspace();
+                }}
+                className="w-full flex items-center justify-between px-4 py-3 bg-amber-50 hover:bg-amber-100/80 text-[#854D0E] border border-amber-200/80 rounded-xl text-sm font-bold transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5">
+                  <BookOpen className="w-5 h-5 text-[#D97706]" />
+                  <span>مساحة المعلم (الفصول والطلاب)</span>
+                </div>
+                <span className="text-xs bg-amber-200/60 px-2.5 py-1 rounded-md text-[#854D0E] font-medium">دخول</span>
+              </button>
+            </div>
+          )}
+
+          {userSession.isLoggedIn ? (
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <div className="px-4 py-2.5 bg-slate-50 rounded-xl text-right flex items-center justify-between border border-slate-200/60">
+                <div>
+                  <p className="text-xs font-bold text-slate-900">{userSession.name}</p>
+                  <p className="text-[11px] text-slate-500">{userSession.role}</p>
+                </div>
+                <div className="w-7 h-7 rounded-full bg-[#0B3D5B] text-white flex items-center justify-center text-xs font-bold">
+                  {userSession.name ? userSession.name.charAt(0) : 'م'}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onLogout();
+                }}
+                className="w-full py-2.5 text-center text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>تسجيل الخروج</span>
+              </button>
+            </div>
+          ) : (
             <div className="pt-3 border-t border-slate-100 grid grid-cols-2 gap-2">
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);
                   onOpenAuth('login');
                 }}
-                className="w-full py-2.5 text-center text-sm font-semibold text-[#0B3D5B] bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                className="w-full py-2.5 text-center text-sm font-semibold text-[#0B3D5B] bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
               >
                 تسجيل الدخول
               </button>
@@ -238,7 +280,7 @@ export const Header: React.FC<HeaderProps> = ({
                   setMobileMenuOpen(false);
                   onOpenAuth('register');
                 }}
-                className="w-full py-2.5 text-center text-sm font-semibold text-white bg-[#0B3D5B] hover:bg-[#072a3f] rounded-lg transition-colors"
+                className="w-full py-2.5 text-center text-sm font-semibold text-white bg-[#0B3D5B] hover:bg-[#072a3f] rounded-lg transition-colors cursor-pointer"
               >
                 إنشاء حساب
               </button>
