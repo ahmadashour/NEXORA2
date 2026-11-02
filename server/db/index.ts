@@ -1575,3 +1575,4 @@ export { communityRepo, CommunityRepository } from './repositories/communityRepo
 export { libraryRepo, LibraryRepository } from './repositories/libraryRepository';
 export { contentRepo, ContentRepository } from './repositories/contentRepository';
 export { supportRepo, SupportRepository } from './repositories/supportRepository';
+export { teacherRepo, TeacherRepository } from './repositories/teacherRepository';

@@ -7,13 +7,15 @@ interface PortalModalProps {
   onClose: () => void;
   onLaunchVirtualLab?: () => void;
   onOpenAiAssistant?: () => void;
+  onOpenTeacherWorkspace?: () => void;
 }
 
 export const PortalModal: React.FC<PortalModalProps> = ({
   portal,
   onClose,
   onLaunchVirtualLab,
-  onOpenAiAssistant
+  onOpenAiAssistant,
+  onOpenTeacherWorkspace
 }) => {
   if (!portal) return null;
 
@@ -21,6 +23,11 @@ export const PortalModal: React.FC<PortalModalProps> = ({
   const [notification, setNotification] = useState<string | null>(null);
 
   const handleAction = (feature: string) => {
+    if (portal.id === 'teach' && onOpenTeacherWorkspace && (feature.includes('الفصول') || feature.includes('التحضير') || feature.includes('المعلم'))) {
+      onClose();
+      onOpenTeacherWorkspace();
+      return;
+    }
     setNotification(`تم فتح أداة: "${feature}" بنجاح في بيئة ${portal.nameAr}.`);
     setTimeout(() => setNotification(null), 3500);
   };

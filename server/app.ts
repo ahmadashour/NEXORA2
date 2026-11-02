@@ -11,6 +11,7 @@ import libraryRouter from './routes/library';
 import contentRouter from './routes/content';
 import eventsRouter from './routes/events';
 import supportRouter from './routes/support';
+import teacherRouter from './routes/teacher';
 
 export function createExpressApp(): Express {
   const app = express();
@@ -127,6 +128,7 @@ export function createExpressApp(): Express {
   app.use('/api/v1/content', contentRouter);
   app.use('/api/v1/events', eventsRouter);
   app.use('/api/v1/support', supportRouter);
+  app.use('/api/v1/teacher', teacherRouter);
 
   // Backward compatibility alias for `/api/health`
   app.use('/api/health', healthRouter);

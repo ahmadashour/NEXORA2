@@ -315,6 +315,7 @@ export interface InquiriesApiResponse {
 
 export interface SingleInquiryApiResponse {
   success: boolean;
+  inquiry?: BackendSupportInquiry;
   data?: BackendSupportInquiry;
   error?: string;
   message?: string;
@@ -322,6 +323,13 @@ export interface SingleInquiryApiResponse {
 
 export interface CreateInquiryApiResponse {
   success: boolean;
+  inquiry?: {
+    id: string;
+    subject: string;
+    status: string;
+    created_at: string;
+    [key: string]: any;
+  };
   data?: BackendSupportInquiry;
   error?: string;
   message?: string;
@@ -332,5 +340,109 @@ export interface UpdateInquiryStatusPayload {
   admin_notes?: string;
   assigned_to?: string;
 }
+
+// ============================================================================
+// 5. TEACHER WORKSPACE CONTRACTS (PHASE 2.2)
+// ============================================================================
+
+export interface TeacherClassModel {
+  id: string;
+  teacher_id: string;
+  name: string;
+  subject: string;
+  grade_level: string;
+  academic_year: string;
+  term: 'term_1' | 'term_2' | 'summer';
+  join_code: string;
+  room_number?: string | null;
+  status: 'active' | 'archived' | 'completed';
+  student_count?: number;
+  attendance_rate?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClassStudentModel {
+  id: string;
+  class_id: string;
+  student_id: string;
+  student_name?: string;
+  student_email?: string;
+  status: 'active' | 'dropped' | 'transferred' | 'suspended';
+  joined_at: string;
+  updated_at: string;
+}
+
+export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
+
+export interface AttendanceRecordModel {
+  id: string;
+  class_id: string;
+  student_id: string;
+  student_name?: string;
+  attendance_date: string;
+  session_number: number;
+  status: AttendanceStatus;
+  notes?: string | null;
+  recorded_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AttendanceSummaryModel {
+  total_sessions: number;
+  total_records: number;
+  attendance_rate: number;
+  student_breakdown: Array<{
+    student_id: string;
+    student_name?: string;
+    present_count: number;
+    absent_count: number;
+    late_count: number;
+    excused_count: number;
+    rate: number;
+  }>;
+}
+
+export interface CreateClassPayload {
+  name: string;
+  grade_level: string;
+  academic_year: string;
+  term: 'term_1' | 'term_2' | 'summer';
+  subject?: string;
+  room_number?: string;
+}
+
+export interface UpdateClassPayload {
+  name?: string;
+  grade_level?: string;
+  academic_year?: string;
+  term?: 'term_1' | 'term_2' | 'summer';
+  subject?: string;
+  room_number?: string | null;
+  status?: 'active' | 'archived' | 'completed';
+}
+
+export interface BatchAttendancePayload {
+  records: Array<{
+    student_id: string;
+    attendance_date: string;
+    session_number: number;
+    status: AttendanceStatus;
+    notes?: string;
+  }>;
+}
+
+export interface CsvImportValidationResult {
+  valid: Array<{ student_id: string; student_name: string; student_email?: string }>;
+  errors: Array<{ row_index: number; record: any; reason: string }>;
+  summary: {
+    total: number;
+    valid_count: number;
+    error_count: number;
+    duplicate_count: number;
+  };
+}
+
 
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, User, Menu, X, Sparkles, LogOut, ChevronDown } from 'lucide-react';
+import { Search, User, Menu, X, Sparkles, LogOut, ChevronDown, BookOpen, Users } from 'lucide-react';
 import { UserSession } from '../types';
 
 interface HeaderProps {
@@ -9,6 +9,7 @@ interface HeaderProps {
   onLogout: () => void;
   onNavigate: (sectionId: string) => void;
   isSessionLoading?: boolean;
+  onOpenTeacherWorkspace?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -18,6 +19,7 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   onNavigate,
   isSessionLoading = false,
+  onOpenTeacherWorkspace,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -102,6 +104,18 @@ export const Header: React.FC<HeaderProps> = ({
             </kbd>
           </button>
 
+          {/* Teacher Workspace Quick Shortcut for Logged-In Teachers */}
+          {userSession.isLoggedIn && onOpenTeacherWorkspace && (
+            <button
+              onClick={onOpenTeacherWorkspace}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-[#854D0E] border border-amber-300/60 text-xs font-bold transition-all shadow-2xs cursor-pointer min-h-[44px]"
+              title="مساحة المعلم الذكية (الفصول، الطلاب، الحضور)"
+            >
+              <BookOpen className="w-4 h-4 text-[#D97706]" />
+              <span>مساحة المعلم</span>
+            </button>
+          )}
+
           {/* User Auth / Profile */}
           {isSessionLoading ? (
             <div className="h-9 w-20 bg-slate-100 rounded-lg flex items-center justify-center border border-slate-200">
@@ -111,7 +125,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="relative">
               <button
                 onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0B3D5B]/5 border border-[#0B3D5B]/20 text-[#0B3D5B] hover:bg-[#0B3D5B]/10 transition-colors text-sm font-medium focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#00A7B5] cursor-pointer"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0B3D5B]/5 border border-[#0B3D5B]/20 text-[#0B3D5B] hover:bg-[#0B3D5B]/10 transition-colors text-sm font-medium focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#00A7B5] cursor-pointer min-h-[44px]"
               >
                 <div className="w-7 h-7 rounded-full bg-[#0B3D5B] text-white flex items-center justify-center text-xs font-bold">
                   {userSession.name ? userSession.name.charAt(0) : 'م'}
@@ -124,11 +138,23 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
 
               {userDropdownOpen && (
-                <div className="absolute left-0 mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-lg p-2 z-50 animate-in fade-in zoom-in-95">
+                <div className="absolute left-0 mt-2 w-52 bg-white border border-slate-200 rounded-xl shadow-lg p-2 z-50 animate-in fade-in zoom-in-95">
                   <div className="px-3 py-2 border-b border-slate-100 text-right">
                     <p className="text-xs font-bold text-slate-900">{userSession.name}</p>
                     <p className="text-[11px] text-slate-500">{userSession.role}</p>
                   </div>
+                  {onOpenTeacherWorkspace && (
+                    <button
+                      onClick={() => {
+                        setUserDropdownOpen(false);
+                        onOpenTeacherWorkspace();
+                      }}
+                      className="w-full text-right px-3 py-2 text-xs font-bold text-[#0B3D5B] hover:bg-[#00A7B5]/10 rounded-lg transition-colors flex items-center justify-between"
+                    >
+                      <span>مساحة المعلم (الفصول والطلاب)</span>
+                      <BookOpen className="w-3.5 h-3.5 text-[#00A7B5]" />
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setUserDropdownOpen(false);

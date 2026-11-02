@@ -8,6 +8,7 @@ import {
   BackendContactInquiryDTO,
   BackendSupportInquiry,
   SupportInquiryPayload,
+  CreateInquiryPayload,
   SupportInquiryUI,
   BackendInquiryStatus,
 } from '../../types/contracts';

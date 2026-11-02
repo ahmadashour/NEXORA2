@@ -58,7 +58,7 @@ export const supportService = {
   /**
    * Submits a new contact inquiry to backend (Guests & Authenticated users)
    */
-  async submitInquiry(payload: SupportInquiryPayload): Promise<{ success: boolean; data?: BackendSupportInquiry; message: string }> {
+  async submitInquiry(payload: SupportInquiryPayload): Promise<{ success: boolean; data?: any; message: string }> {
     const res = await fetch(`${API_BASE}/support/inquiries`, {
       method: 'POST',
       headers: getHeaders(true),
@@ -80,7 +80,7 @@ export const supportService = {
 
     return {
       success: true,
-      data: body.data,
+      data: body.inquiry || body.data,
       message: body.message || 'تم استلام استفسارك بنجاح وسيقوم فريق الدعم بالرد قريباً',
     };
   },
@@ -139,9 +139,10 @@ export const supportService = {
       credentials: 'include',
     });
 
-    const data: SingleInquiryApiResponse = await res.json();
+    const data: any = await res.json();
+    const item = data.inquiry || data.data;
 
-    if (!res.ok || !data.success || !data.data) {
+    if (!res.ok || !data.success || !item) {
       const errCode = data.error || (
         res.status === 403 ? 'FORBIDDEN_IDOR' :
         res.status === 404 ? 'INQUIRY_NOT_FOUND' : 'SERVER_ERROR'
@@ -150,7 +151,7 @@ export const supportService = {
       throw new SupportApiError(arabicMsg, res.status, errCode);
     }
 
-    return backendToUiInquiry(data.data);
+    return backendToUiInquiry(item);
   },
 
   /**
@@ -164,7 +165,8 @@ export const supportService = {
       body: JSON.stringify(payload),
     });
 
-    const body = await res.json();
+    const body: any = await res.json();
+    const item = body.inquiry || body.data;
 
     if (!res.ok || !body.success) {
       const errCode = body.error || (
@@ -177,7 +179,7 @@ export const supportService = {
 
     return {
       success: true,
-      data: body.data,
+      data: item,
       message: body.message || 'تم تحديث حالة الاستفسار بنجاح',
     };
   },

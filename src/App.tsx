@@ -25,6 +25,7 @@ import { PostDetailModal } from './components/modals/PostDetailModal';
 import { ContributeModal } from './components/modals/ContributeModal';
 import { ContactModal } from './components/modals/ContactModal';
 import { PrivacyModal } from './components/modals/PrivacyModal';
+import { TeacherWorkspaceModal } from './components/modals/TeacherWorkspaceModal';
 
 // Types
 import { PortalId, PortalItem, ContentItem, CommunityPost, UserSession } from './types';
@@ -48,6 +49,7 @@ export default function App() {
   const [isContributeOpen, setIsContributeOpen] = useState(false);
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
+  const [isTeacherWorkspaceOpen, setIsTeacherWorkspaceOpen] = useState(false);
 
   // User session state
   const [userSession, setUserSession] = useState<UserSession>({
@@ -148,6 +150,7 @@ export default function App() {
         onLogout={handleLogout}
         onNavigate={handleNavigate}
         isSessionLoading={isSessionLoading}
+        onOpenTeacherWorkspace={() => setIsTeacherWorkspaceOpen(true)}
       />
 
       <main className="flex-1">
@@ -198,6 +201,7 @@ export default function App() {
         onClose={() => setSelectedPortal(null)}
         onLaunchVirtualLab={() => setIsLabOpen(true)}
         onOpenAiAssistant={() => setIsAiAssistantOpen(true)}
+        onOpenTeacherWorkspace={() => setIsTeacherWorkspaceOpen(true)}
       />
 
       <LabModal
@@ -261,6 +265,13 @@ export default function App() {
       <PrivacyModal
         isOpen={isPrivacyOpen}
         onClose={() => setIsPrivacyOpen(false)}
+      />
+
+      <TeacherWorkspaceModal
+        isOpen={isTeacherWorkspaceOpen}
+        onClose={() => setIsTeacherWorkspaceOpen(false)}
+        userRole={userSession.role}
+        userName={userSession.name}
       />
 
     </div>

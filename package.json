@@ -29,6 +29,8 @@
     "test:p145": "tsx test/phase5_p1_4_5_content_integration.test.ts",
     "test:p146": "tsx test/phase5_p1_4_6_events_integration.test.ts",
     "test:p147": "tsx test/phase5_p1_4_7_support_integration.test.ts",
+    "test:phase21": "tsx test/phase2_1_teacher_workspace.test.ts",
+    "test:phase22": "tsx test/phase2_2_classes_students_attendance.test.ts",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
